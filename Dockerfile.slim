@@ -1,0 +1,21 @@
+# Atlas backend — SLIM image for small/constrained hosts (Render free, 512 MB).
+# No Docling/torch/opencv: PDFs use the low-memory pypdfium2 text-only path
+# (DOCLING_ENABLED=false, baked in). Builds fast, small image, boots in <512 MB.
+# pypdfium2 bundles its own native lib, so no apt packages are needed.
+FROM python:3.13-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    DOCLING_ENABLED=false \
+    PORT=7860
+
+WORKDIR /app
+
+COPY backend/requirements-slim.txt ./requirements.txt
+RUN pip install -r requirements.txt
+
+COPY backend/ ./
+
+EXPOSE 7860
+
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1"]

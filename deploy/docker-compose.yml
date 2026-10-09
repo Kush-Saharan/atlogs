@@ -1,0 +1,41 @@
+# Atlas backend on an always-on VM (Oracle Cloud Always Free), fronted by Caddy
+# for automatic HTTPS. Run from the repo root on the VM:
+#
+#   DOMAIN=atlas-demo.duckdns.org docker compose -f deploy/docker-compose.yml up -d --build
+#
+# The backend reads its secrets from backend/.env (create it on the VM from
+# backend/.env.example — DATABASE_URL, NVIDIA_API_KEY, FRONTEND_ORIGIN, ...).
+# Single worker on purpose (in-memory job registry + asyncpg pool assume one
+# process). restart: always keeps everything up across reboots = no cold start.
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file:
+      - ../backend/.env
+    environment:
+      - PORT=7860
+    expose:
+      - "7860"
+    restart: always
+
+  caddy:
+    image: caddy:2
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: always
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,8 @@
+# Caddy reverse proxy with automatic HTTPS (Let's Encrypt).
+# $DOMAIN is your free DuckDNS subdomain, e.g. atlas-demo.duckdns.org.
+# Caddy fetches + renews the TLS cert automatically as long as ports 80/443
+# are reachable and $DOMAIN resolves to this VM's public IP.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy backend:7860
+}
