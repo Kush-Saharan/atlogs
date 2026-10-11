@@ -1,0 +1,51 @@
+# ── Secrets / environment ────────────────────────────────────────────────
+.env
+**/.env
+# (.env.example templates ARE committed)
+# ── Python ───────────────────────────────────────────────────────────────
+backend/.venv/
+**/__pycache__/
+*.py[cod]
+**/.pytest_cache/
+.pytest_cache/
+
+# ── Node / Vite ──────────────────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/dist/
+**/.vite/
+
+# ── Self-hosted Supabase (clone the official repo separately) ─────────────
+supabase/
+
+# ── Large / third-party data inputs (not part of the app) ────────────────
+dataset-final-atlas/
+dataset_train.csv
+MetroPT2.csv
+*.pdf
+*.docx
+iki-soft-ui.html
+
+# ── Third-party design reference screenshots ─────────────────────────────
+reference-screenshots/
+
+# ── Working notes folder (a curated copy lives in docs/architecture) ──────
+mermaid diagrams/
+
+# ── Personal documentation (not for public repo) ──────────────────────────
+RESUME*.md
+DEPLOYMENT_COMPLETE.md
+DEPLOYMENT_STATUS.md
+FINAL_DEPLOYMENT_SUMMARY.md
+CLEANUP_CHECKLIST.md
+SECURITY_INCIDENT_SUMMARY.md
+
+# ── IDE / tooling / OS ───────────────────────────────────────────────────
+.kiro/
+.playwright-mcp/
+.DS_Store
+Thumbs.db
+*.log
+
+# ── Model / HF caches (should never be in-repo) ──────────────────────────
+**/.cache/

@@ -1,0 +1,16 @@
+[
+  {
+    "record_id": "WO-1001",
+    "asset_tag": "P-101",
+    "description": "Replaced mechanical seal and re-aligned coupling on feed pump P-101",
+    "status": "completed",
+    "date": "2026-05-12"
+  },
+  {
+    "record_id": "WO-1002",
+    "asset_tag": "P-101",
+    "description": "Topped up bearing lubrication and logged a follow-up vibration check",
+    "status": "completed",
+    "date": "2026-06-02"
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "record_id": "AR-P101",
+    "asset_name": "Feed pump P-101 — Grundfos CR-64 on Line 3",
+    "serial_number": "SN-GF-4471",
+    "asset_tag": "P-101",
+    "manufacturer": "Grundfos",
+    "location": "Line 3"
+  },
+  {
+    "record_id": "AR-DB02",
+    "asset_name": "Database server db-prod-02 — Dell PowerEdge R760",
+    "serial_number": "SN-DELL-9K2Q",
+    "asset_tag": "db-prod-02",
+    "manufacturer": "Dell",
+    "location": "DC-East A14"
+  },
+  {
+    "record_id": "AR-SW07",
+    "asset_name": "Core aggregation switch sw-core-7 — Cisco Nexus 9300",
+    "serial_number": "SN-CSCO-3311",
+    "asset_tag": "sw-core-7",
+    "manufacturer": "Cisco",
+    "location": "DC-East A01"
+  }
+]

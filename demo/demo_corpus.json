@@ -1,0 +1,121 @@
+{
+  "_comment": "Atlas demo corpus. Five named connectors across TWO industries (a manufacturing pump + an IT datacenter) so the demo shows the system is generalized, not hardcoded. It exercises: cross-source entity resolution (shared serial/asset_tag), anomaly gating (a benign log that must NOT become a failure), single-asset RCA (pump bearing), multi-hop RCA (db symptom -> upstream switch fault via depends_on), and compliance (a compliant asset with a completed work order vs an at-risk asset with none). Connector 'description' is chosen so relation_from_description maps each source to the right event kind.",
+  "connectors": [
+    {
+      "name": "Plant Asset Register",
+      "description": "Master asset register and equipment catalog",
+      "records": [
+        {
+          "record_id": "AR-P101",
+          "asset_name": "Feed pump P-101 — Grundfos CR-64 on Line 3",
+          "serial_number": "SN-GF-4471",
+          "asset_tag": "P-101",
+          "manufacturer": "Grundfos",
+          "location": "Line 3"
+        },
+        {
+          "record_id": "AR-DB02",
+          "asset_name": "Database server db-prod-02 — Dell PowerEdge R760",
+          "serial_number": "SN-DELL-9K2Q",
+          "asset_tag": "db-prod-02",
+          "manufacturer": "Dell",
+          "location": "DC-East A14"
+        },
+        {
+          "record_id": "AR-SW07",
+          "asset_name": "Core aggregation switch sw-core-7 — Cisco Nexus 9300",
+          "serial_number": "SN-CSCO-3311",
+          "asset_tag": "sw-core-7",
+          "manufacturer": "Cisco",
+          "location": "DC-East A01"
+        }
+      ]
+    },
+    {
+      "name": "CMMS Work Orders",
+      "description": "CMMS work order and maintenance history (Maximo)",
+      "records": [
+        {
+          "record_id": "WO-1001",
+          "asset_tag": "P-101",
+          "description": "Replaced mechanical seal and re-aligned coupling on feed pump P-101",
+          "status": "completed",
+          "date": "2026-05-12"
+        },
+        {
+          "record_id": "WO-1002",
+          "asset_tag": "P-101",
+          "description": "Topped up bearing lubrication and logged a follow-up vibration check",
+          "status": "completed",
+          "date": "2026-06-02"
+        }
+      ]
+    },
+    {
+      "name": "SCADA Incident Log",
+      "description": "SCADA incident and failure log",
+      "records": [
+        {
+          "record_id": "INC-1",
+          "serial_number": "SN-GF-4471",
+          "description": "Vibration alarm and rising bearing temperature on the feed pump; discharge flow fell roughly 18% over two hours",
+          "component": "bearing",
+          "sensors": "vibration, bearing_temp",
+          "date": "2026-07-01"
+        },
+        {
+          "record_id": "INC-2",
+          "serial_number": "SN-GF-4471",
+          "description": "Scheduled lubrication completed on the feed pump; vibration and temperature returned to baseline, no action required",
+          "component": "lubrication",
+          "date": "2026-07-03"
+        },
+        {
+          "record_id": "INC-3",
+          "asset_tag": "db-prod-02",
+          "description": "Intermittent packet loss and elevated round-trip latency to db-prod-02 during peak hours; CPU, memory and disk all within normal range",
+          "sensors": "packet_loss, rtt_ms",
+          "date": "2026-07-05"
+        },
+        {
+          "record_id": "INC-4",
+          "asset_tag": "sw-core-7",
+          "description": "Uplink port flapping on the core aggregation switch with repeated interface resets and CRC errors",
+          "component": "uplink port",
+          "sensors": "link_state, crc_errors",
+          "date": "2026-07-05"
+        }
+      ]
+    },
+    {
+      "name": "Network Topology",
+      "description": "Network topology and dependency map",
+      "records": [
+        {
+          "record_id": "TOPO-1",
+          "asset_tag": "db-prod-02",
+          "description": "db-prod-02 sits behind and depends on core aggregation switch sw-core-7",
+          "depends_on": "sw-core-7"
+        }
+      ]
+    },
+    {
+      "name": "Compliance Register",
+      "description": "Compliance and permit register of audit rules",
+      "records": [
+        {
+          "record_id": "REG-1",
+          "asset_tag": "P-101",
+          "rule_id": "RULE-VIB-Q",
+          "description": "Rotating equipment must complete a documented quarterly vibration inspection"
+        },
+        {
+          "record_id": "REG-2",
+          "asset_tag": "db-prod-02",
+          "rule_id": "RULE-PATCH-Q",
+          "description": "Production database servers must complete quarterly security patching"
+        }
+      ]
+    }
+  ]
+}
