@@ -80,15 +80,17 @@ Status words follow AGENTS.md §8: ✅ only with test or demo evidence linked.
 | M-D3 | Extraction is rule-based first (patterns + terminology table + negation check); the LLM only fills fields rules left empty, when a key is set | Works offline, testable, gives real confidence and source spans | Extraction runs without NVIDIA; `extract_ops.py` anomaly gate stays as-is |
 | M-D4 | Stay on PostgreSQL + pgvector; no Neo4j, FAISS or OR-Tools | One-database doctrine (rules §1.1); spec §7 "do not introduce every technology" | Relationships in `edges`, similarity via pgvector/FTS, scheduling via a small greedy checker |
 | M-D5 | Risk = transparent weighted formula, labelled *uncalibrated* | Spec §5: evaluate before trusting | Formula + weights versioned in code and stored with each assessment |
+| M-D6 (was M-Q1) | A reviewed record enters `source_records` once, on first approval; later corrections update `maintenance_records.reviewed` and the graph reads reviewed fields from there | `raw_json` immutable; avoids duplicate cases | No versioned rows in `source_records` |
+| M-D7 (was M-Q2) | Notifications are in-app only, a derived query (no table) | Smallest working option | No email/SMTP config |
+| M-D8 (was M-Q3) | Criticality, technicians and parts come from admin pages only; start empty | User decision | No resource seed JSON; demo data is entered through the UI/API |
+| M-D9 (was M-Q4) | First admin is created by a one-off script reading `ADMIN_EMAIL` / `ADMIN_PASSWORD` from env | No hard-coded credentials | `backend/scripts/create_admin.py` |
+| M-D10 | Test fixtures and the similar-case set use ~30 synthetic hand-written logs | No real logs available yet | Fixtures in `backend/tests/fixtures/`; re-evaluate when real data arrives |
 
 ### Open decisions
 
 | ID | Question | Owner | Recommendation |
 |----|----------|-------|----------------|
-| M-Q1 | When a reviewed record is corrected again, how does the change reach `source_records` (raw_json is immutable)? | — | Insert into `source_records` only on first approval of review; later corrections update `maintenance_records.reviewed` and the projection reads reviewed fields from there |
-| M-Q2 | Notification delivery: in-app only, or email too? | — | In-app only (derived query: pending review, high priority, unschedulable) |
-| M-Q3 | Where do equipment criticality and resources come from: admin UI, seed JSON, or both? | — | Seed JSON + admin CRUD endpoints, no bulk importer |
-| M-Q4 | Is a default admin created at startup, or by a CLI script? | — | One-off script reading credentials from env; never a hard-coded password |
+| — | None open | — | — |
 
 ### Data model (additive, in `backend/app/db/schema.sql`)
 
