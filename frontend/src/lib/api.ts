@@ -18,8 +18,27 @@ export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:8001')
   '',
 )
 
+const TOKEN_KEY = 'atlogs.token'
+export const getToken = () => localStorage.getItem(TOKEN_KEY)
+export const setToken = (t: string | null) =>
+  t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY)
+
+/** fetch + bearer token; a 401 clears the token and sends the user to /login.
+ *  (SSE already uses fetch streaming, so headers work; EventSource is not used.) */
+async function authFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers)
+  const token = getToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const res = await fetch(url, { ...init, headers })
+  if (res.status === 401 && !url.endsWith('/api/auth/login')) {
+    setToken(null)
+    if (location.pathname !== '/login') location.assign('/login')
+  }
+  return res
+}
+
 async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await authFetch(`${API_URL}${path}`, {
     headers: { Accept: 'application/json' },
     signal,
   })
@@ -28,7 +47,7 @@ async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
 }
 
 async function sendJSON<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await authFetch(`${API_URL}${path}`, {
     method,
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -45,7 +64,22 @@ export interface ConnectorCreate {
   payload?: unknown
 }
 
+export interface User {
+  id: number
+  email: string
+  role: 'engineer' | 'manager' | 'admin'
+  active?: boolean
+}
+
 export const api = {
+  login: (email: string, password: string) =>
+    sendJSON<{ token: string; user: User }>('POST', '/api/auth/login', { email, password }),
+  me: (signal?: AbortSignal) => getJSON<User>('/api/auth/me', signal),
+  users: (signal?: AbortSignal) => getJSON<User[]>('/api/admin/users', signal),
+  createUser: (body: { email: string; password: string; role: string }) =>
+    sendJSON<User>('POST', '/api/admin/users', body),
+  updateUser: (id: number, body: { role?: string; active?: boolean }) =>
+    sendJSON<User>('PATCH', `/api/admin/users/${id}`, body),
   overview: (signal?: AbortSignal) => getJSON<Overview>('/api/overview', signal),
   graph: (asset?: string, signal?: AbortSignal) =>
     getJSON<GraphData>(
@@ -127,7 +161,7 @@ export async function* streamWorkflow(
   body: unknown,
   signal?: AbortSignal,
 ): AsyncGenerator<WorkflowEvent> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await authFetch(`${API_URL}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
     body: JSON.stringify(body),
@@ -161,7 +195,7 @@ export async function startDocumentUpload(files: File[]): Promise<IngestJob> {
   const fd = new FormData()
   for (const f of files) fd.append('files', f)
   // Do NOT set Content-Type — the browser adds the multipart boundary.
-  const res = await fetch(`${API_URL}/api/documents/ingest`, {
+  const res = await authFetch(`${API_URL}/api/documents/ingest`, {
     method: 'POST',
     headers: { Accept: 'application/json' },
     body: fd,
@@ -176,7 +210,7 @@ export async function* streamJob(
   jobId: string,
   signal?: AbortSignal,
 ): AsyncGenerator<WorkflowEvent> {
-  const res = await fetch(`${API_URL}/api/documents/jobs/${jobId}/stream`, {
+  const res = await authFetch(`${API_URL}/api/documents/jobs/${jobId}/stream`, {
     headers: { Accept: 'text/event-stream' },
     signal,
   })

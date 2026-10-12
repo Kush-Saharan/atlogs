@@ -4,6 +4,8 @@ import {
   Boxes,
   ClipboardCheck,
   Home,
+  LogOut,
+  Users,
   PanelLeft,
   Plug,
   Share2,
@@ -11,6 +13,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
+import { useAuth } from '@/lib/session'
 import { cn } from '@/lib/utils'
 import { ShaderBackground } from '@/components/ShaderBackground'
 
@@ -108,6 +111,7 @@ function BottomTab({ item }: { item: NavItem }) {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const { user, logout } = useAuth()
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false
     return localStorage.getItem('atlas.sidebar.collapsed') === '1'
@@ -161,12 +165,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {SECONDARY.map((item) => (
             <SideNavLink key={item.to} item={item} collapsed={collapsed} />
           ))}
+          {user.role === 'admin' && (
+            <SideNavLink
+              item={{ to: '/admin/users', label: 'Users', short: 'Users', icon: Users }}
+              collapsed={collapsed}
+            />
+          )}
+        </div>
+        <div className="mt-auto flex flex-col gap-1 px-1">
+          {!collapsed && (
+            <p className="truncate px-2 text-xs text-muted-foreground" title={user.email}>
+              {user.email} ({user.role})
+            </p>
+          )}
+          <button
+            onClick={logout}
+            title="Sign out"
+            className={cn(
+              'flex items-center rounded-xl py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground',
+              collapsed ? 'justify-center' : 'gap-3 px-3',
+            )}
+          >
+            <LogOut className="size-4.5" aria-hidden />
+            {!collapsed && 'Sign out'}
+          </button>
         </div>
       </aside>
 
       {/* Mobile top bar */}
       <header className="sticky top-0 z-30 flex items-center border-b border-border/70 bg-background/85 px-4 py-3 backdrop-blur md:hidden">
         <Brand />
+        <button onClick={logout} aria-label="Sign out" className="ml-auto p-2 text-muted-foreground">
+          <LogOut className="size-5" aria-hidden />
+        </button>
       </header>
 
       {/* Main content — margin follows the sidebar width via the CSS var */}

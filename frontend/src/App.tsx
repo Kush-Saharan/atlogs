@@ -11,11 +11,16 @@ import { Compliance } from '@/pages/workflows/Compliance'
 import { Documents } from '@/pages/workflows/Documents'
 import { Assets } from '@/pages/Assets'
 import { Review } from '@/pages/Review'
+import { Login } from '@/pages/Login'
+import { Users } from '@/pages/Users'
+import { RequireAuth } from '@/lib/auth'
 
 function App() {
   return (
     <BrowserRouter>
-      <AppShell>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="*" element={<RequireAuth><AppShell>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/graph" element={<KnowledgeGraph />} />
@@ -28,9 +33,11 @@ function App() {
           <Route path="/workflows/compliance" element={<Compliance />} />
           <Route path="/assets" element={<Assets />} />
           <Route path="/review" element={<Review />} />
+          <Route path="/admin/users" element={<RequireAuth roles={['admin']}><Users /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </AppShell>
+        </AppShell></RequireAuth>} />
+      </Routes>
     </BrowserRouter>
   )
 }

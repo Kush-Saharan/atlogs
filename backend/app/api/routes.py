@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from asyncpg.exceptions import UniqueViolationError
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -38,7 +39,12 @@ async def _sse(gen) -> Any:
     async for event in gen:
         yield pipeline.sse(event)
 
-router = APIRouter(prefix="/api", tags=["unified-assets"])
+router = APIRouter(
+    prefix="/api", tags=["unified-assets"], dependencies=[Depends(auth.require_role())]
+)
+# Login is the only route reachable without a token (main.py attaches both).
+public_router = APIRouter(prefix="/api", tags=["auth"])
+_admin = Depends(auth.require_role("admin"))
 _graph = GraphStore()
 
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
@@ -58,10 +64,13 @@ class IngestRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    intent: str | None = None  # optional override (ask|rca|compliance|asset_lookup)
+
+
 class LoginRequest(BaseModel):
     email: str
     password: str
-@router.post("/auth/login")
+@public_router.post("/auth/login")
 async def login(req: LoginRequest) -> dict[str, Any]:
     async with get_pool().acquire() as conn:
         row = await conn.fetchrow(
@@ -83,7 +92,68 @@ async def me(user: dict = Depends(auth.require_role())) -> dict[str, Any]:
     if row is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return dict(row)
-    intent: str | None = None  # optional override (ask|rca|compliance|asset_lookup)
+
+
+class UserCreate(BaseModel):
+    email: str
+    password: str = Field(min_length=8)
+    role: str = "engineer"
+
+
+class UserUpdate(BaseModel):
+    role: str | None = None
+    active: bool | None = None
+
+
+def _check_role(role: str) -> None:
+    if role not in auth.ROLES:
+        raise HTTPException(status_code=422, detail=f"role must be one of {auth.ROLES}")
+
+
+@router.get("/admin/users", dependencies=[_admin])
+async def list_users() -> list[dict[str, Any]]:
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch(
+            "select id, email, role, active, created_at from users order by id"
+        )
+    return [dict(r) for r in rows]
+
+
+@router.post("/admin/users", dependencies=[_admin])
+async def create_user(req: UserCreate) -> dict[str, Any]:
+    _check_role(req.role)
+    email = req.email.strip().lower()
+    if "@" not in email:
+        raise HTTPException(status_code=422, detail="Enter a valid email")
+    async with get_pool().acquire() as conn:
+        try:
+            row = await conn.fetchrow(
+                "insert into users (email, password_hash, role) values ($1, $2, $3) "
+                "returning id, email, role, active, created_at",
+                email, auth.hash_password(req.password), req.role,
+            )
+        except UniqueViolationError:
+            raise HTTPException(status_code=409, detail="User already exists")
+    return dict(row)
+
+
+@router.patch("/admin/users/{user_id}")
+async def update_user(
+    user_id: int, req: UserUpdate, admin: dict = _admin
+) -> dict[str, Any]:
+    if req.role is not None:
+        _check_role(req.role)
+    if user_id == admin["uid"] and (req.role not in (None, "admin") or req.active is False):
+        raise HTTPException(status_code=400, detail="You cannot demote or deactivate yourself")
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "update users set role = coalesce($2, role), active = coalesce($3, active) "
+            "where id = $1 returning id, email, role, active, created_at",
+            user_id, req.role, req.active,
+        )
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return dict(row)
 
 
 class RCARequest(BaseModel):
@@ -185,7 +255,7 @@ def _read_path_items(path: str) -> tuple[list[tuple[str, str, bytes]], str | Non
     return items, None
 
 
-@router.post("/documents/ingest-path")
+@router.post("/documents/ingest-path", dependencies=[_admin])
 async def documents_ingest_path(req: IngestPathRequest) -> dict[str, Any]:
     """Ingest PDFs from a server-side path (file or folder) as a BACKGROUND job.
     Returns a job id; tail via GET /documents/jobs/{id}/stream. Local-dev only."""
@@ -697,7 +767,7 @@ async def sync_connector(connector_id: int, req: SyncRequest) -> StreamingRespon
     )
 
 
-@router.delete("/connectors/{connector_id}")
+@router.delete("/connectors/{connector_id}", dependencies=[_admin])
 async def remove_connector(connector_id: int) -> dict[str, Any]:
     """Delete a connector, drop its records, and re-resolve what remains."""
     async for _ in connectors.delete_connector(connector_id):

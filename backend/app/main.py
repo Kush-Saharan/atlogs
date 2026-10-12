@@ -25,7 +25,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .api.routes import router as api_router
+from .api.routes import public_router, router as api_router
 from .config import get_settings
 from .services.auth import get_secret
 from .db import check_database, close_pool, init_pool
@@ -97,6 +97,7 @@ app.add_middleware(
 # router's routes (verified). The routes already carry their full "/api" paths,
 # so attach them directly.
 app.router.routes.extend(api_router.routes)
+app.router.routes.extend(public_router.routes)
 
 
 @app.get("/")
