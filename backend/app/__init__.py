@@ -1,4 +1,4 @@
-"""Atlas backend package.
+"""atlogs backend package.
 
 Set HuggingFace Hub env vars at the earliest possible point — before any
 submodule (embeddings/LLM clients, Docling) imports `huggingface_hub`, whose

@@ -1,4 +1,4 @@
-# Atlas backend — SLIM dependency set for small/constrained hosts (e.g. Render
+# atlogs backend — SLIM dependency set for small/constrained hosts (e.g. Render
 # free, 512 MB). Drops the multi-GB Docling/torch/opencv stack: run with
 # DOCLING_ENABLED=false so PDFs use the low-memory pypdfium2 text-only path.
 # Everything else (FastAPI, LangChain/LangGraph, Supabase, pandas, pgvector) is

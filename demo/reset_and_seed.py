@@ -1,4 +1,4 @@
-"""Atlas demo — reset ALL data and seed a fresh demo corpus.
+"""atlogs demo — reset ALL data and seed a fresh demo corpus.
 
 What it does:
   1. Wipes every application table (assets, records, edges, connectors,

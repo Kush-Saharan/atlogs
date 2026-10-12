@@ -46,6 +46,7 @@ SECURITY_INCIDENT_SUMMARY.md
 .DS_Store
 Thumbs.db
 *.log
+!backend/tests/fixtures/*.log
 
 # ── Model / HF caches (should never be in-repo) ──────────────────────────
 **/.cache/

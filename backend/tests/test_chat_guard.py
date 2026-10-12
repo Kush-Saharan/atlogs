@@ -44,5 +44,5 @@ def test_triage_strong_keywords_are_in_scope_without_llm():
 
 def test_guard_messages_are_nonempty_and_safe():
     # Off-topic + injection replies must not be blank and must not echo internals.
-    assert _OFF_TOPIC_MSG and "Atlas" in _OFF_TOPIC_MSG
+    assert _OFF_TOPIC_MSG and "atlogs" in _OFF_TOPIC_MSG
     assert _INJECTION_MSG and "can't" in _INJECTION_MSG.lower()

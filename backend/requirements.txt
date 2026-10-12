@@ -1,4 +1,4 @@
-# Atlas backend — full dependency set (Python 3.13), pinned to the working venv.
+# atlogs backend — full dependency set (Python 3.13), pinned to the working venv.
 # Linux-safe: the Windows-only pywin32 from the dev machine is intentionally
 # excluded. Includes the Docling/torch stack for full PDF parsing (tables +
 # layout). For a small host without Docling, use requirements-slim.txt instead.

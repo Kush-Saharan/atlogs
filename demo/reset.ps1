@@ -1,4 +1,4 @@
-# Reset + seed the Atlas demo. Works from ANY directory.
+# Reset + seed the atlogs demo. Works from ANY directory.
 # Paths resolve relative to this script, so your current folder doesn't matter.
 #   Usage:  .\demo\reset.ps1
 #           .\demo\reset.ps1 --reset-only

@@ -1,5 +1,5 @@
 {
-  "_comment": "Atlas demo corpus. Five named connectors across TWO industries (a manufacturing pump + an IT datacenter) so the demo shows the system is generalized, not hardcoded. It exercises: cross-source entity resolution (shared serial/asset_tag), anomaly gating (a benign log that must NOT become a failure), single-asset RCA (pump bearing), multi-hop RCA (db symptom -> upstream switch fault via depends_on), and compliance (a compliant asset with a completed work order vs an at-risk asset with none). Connector 'description' is chosen so relation_from_description maps each source to the right event kind.",
+  "_comment": "atlogs demo corpus. Five named connectors across TWO industries (a manufacturing pump + an IT datacenter) so the demo shows the system is generalized, not hardcoded. It exercises: cross-source entity resolution (shared serial/asset_tag), anomaly gating (a benign log that must NOT become a failure), single-asset RCA (pump bearing), multi-hop RCA (db symptom -> upstream switch fault via depends_on), and compliance (a compliant asset with a completed work order vs an at-risk asset with none). Connector 'description' is chosen so relation_from_description maps each source to the right event kind.",
   "connectors": [
     {
       "name": "Plant Asset Register",

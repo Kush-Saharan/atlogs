@@ -1,4 +1,4 @@
-# Atlas backend — portable image (Hugging Face Spaces, Render, Fly, any Docker
+# atlogs backend — portable image (Hugging Face Spaces, Render, Fly, any Docker
 # host). Single worker on purpose: the in-memory ingest-job registry and the
 # asyncpg pool assume one process. Listens on $PORT (HF Spaces sets 7860).
 FROM python:3.13-slim

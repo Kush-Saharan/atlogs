@@ -1,4 +1,4 @@
-"""Atlas — HONEST evaluation harness.
+"""atlogs — HONEST evaluation harness.
 
 This replaces the earlier harness, which graded RCA "cause accuracy" against
 hand-written keyword synonym lists tuned to the seed incidents — a circular test
@@ -156,7 +156,7 @@ def _matches(ev_id: str, pool: set[str]) -> bool:
 async def main():
     S: dict[str, float] = {}
     print("=" * 72)
-    print("ATLAS — HONEST EVAL (grounding + calibration + resolution)")
+    print("ATLOGS — HONEST EVAL (grounding + calibration + resolution)")
     print("=" * 72)
 
     # ---- A. Resolution F1 (objective: record membership) -------------------

@@ -1,4 +1,4 @@
-"""Seed the hosted Atlas instance with demo connectors.
+"""Seed the hosted atlogs instance with demo connectors.
 
 Run:
     python demo\\seed_hosted.py

@@ -1,4 +1,4 @@
-"""Atlas backend — FastAPI application entrypoint.
+"""atlogs backend — FastAPI application entrypoint.
 
 Scaffolding only: exposes a health-check endpoint that also confirms the
 service can query Postgres (and that pgvector is available). No feature logic.
@@ -77,7 +77,7 @@ async def lifespan(app: FastAPI):
         await close_pool()
 
 
-app = FastAPI(title="Atlas API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="atlogs API", version="0.1.0", lifespan=lifespan)
 
 settings = get_settings()
 app.add_middleware(
@@ -99,7 +99,7 @@ app.router.routes.extend(api_router.routes)
 
 @app.get("/")
 async def root() -> dict[str, str]:
-    return {"service": "atlas-api", "status": "ok"}
+    return {"service": "atlogs-api", "status": "ok"}
 
 
 @app.get("/api/health")

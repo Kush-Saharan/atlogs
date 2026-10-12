@@ -1,5 +1,5 @@
 @echo off
-REM Reset + seed the Atlas demo. Works from ANY directory (double-click or run).
+REM Reset + seed the atlogs demo. Works from ANY directory (double-click or run).
 REM Paths are resolved relative to this file, so cwd doesn't matter.
 REM   Usage:  demo\reset.bat            (connectors only)
 REM           demo\reset.bat --reset-only

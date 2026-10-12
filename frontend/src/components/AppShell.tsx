@@ -36,17 +36,19 @@ const SECONDARY: NavItem[] = [
 ]
 
 function Brand() {
-  // The source PNG (1536x1024) has large transparent padding around the "Atlas"
-  // script. We clip to just the wordmark so it renders large and tight.
+  // Text wordmark (same script stack as favicon.svg) in the brand primary token.
   return (
-    <div className="overflow-hidden" style={{ width: 122, height: 52 }}>
-      <img
-        src="/atlas-logo.png"
-        alt="Atlas"
-        draggable={false}
-        className="max-w-none select-none"
-        style={{ width: 144, marginLeft: -10, marginTop: -16 }}
-      />
+    <div
+      className="flex items-center select-none text-primary"
+      style={{
+        width: 122,
+        height: 52,
+        fontFamily: "'Segoe Script','Brush Script MT','Snell Roundhand',cursive",
+        fontSize: 30,
+        fontWeight: 600,
+      }}
+    >
+      atlogs
     </div>
   )
 }

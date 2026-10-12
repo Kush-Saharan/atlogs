@@ -35,7 +35,7 @@ Backend paths are under `backend/app/`, tests under `backend/tests/`.
 
 | # | Task | Owner | Status | Notes |
 |---|------|-------|--------|-------|
-| P.1 | Run the local stack and seed demo data (`demo/reset_and_seed.py`) | — | ⬜ | Record actual `pytest` / build / lint output here |
+| P.1 | Run the local stack and seed demo data (`demo/reset_and_seed.py`) | agent | 🔄 | Baseline (Task 0, `feat/atlogs-core`, Python 3.12 venv from `requirements-slim.txt` + pytest 8.3.4, no `DATABASE_URL`): `pytest` 36 passed / 7 skipped; `npm run build` passes (chunk >500 kB warning); `npm run lint` 8 errors (pre-existing, e.g. `react-hooks/set-state-in-effect` in `Documents.tsx`). Same counts after the Atlas→atlogs rename; sidebar wordmark checked in browser (`vite preview`). `package-lock.json` is out of sync (`npm ci` fails; used `npm install`, lockfile not committed). Seeding not run: no DB. |
 | P.2 | Branch discipline: `main` protected, `feat/*` branches, PRs | — | ⬜ | AGENTS.md §4 |
 | P.3 | CI: `pytest` (pure tests) on GitHub Actions | — | ⬜ | No CI exists |
 | P.4 | CI: `ruff` / `mypy` linting | — | ⬜ | Best-effort |
