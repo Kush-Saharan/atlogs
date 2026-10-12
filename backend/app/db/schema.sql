@@ -262,3 +262,25 @@ create table if not exists maintenance_logs (
     created_at    timestamptz not null default now()
 );
 create index if not exists maintenance_logs_sha256_idx on maintenance_logs (sha256);
+
+-- ---------------------------------------------------------------------------
+-- Terminology — abbreviation/synonym -> canonical term (spec M2 step 6).
+-- `term` is stored in normalised form (lowercase, no punctuation).
+-- ---------------------------------------------------------------------------
+create table if not exists terminology (
+    term       text primary key,
+    canonical  text not null,
+    created_at timestamptz not null default now()
+);
+insert into terminology (term, canonical) values
+    ('brg', 'bearing'), ('brng', 'bearing'),
+    ('vib', 'vibration'), ('vibes', 'vibration'),
+    ('mtr', 'motor'),
+    ('temp', 'overheating'), ('hot', 'overheating'), ('overheat', 'overheating'),
+    ('repl', 'replace'), ('replaced', 'replace'),
+    ('lub', 'lubricate'), ('lube', 'lubricate'),
+    ('pmp', 'pump'), ('cmpr', 'compressor'), ('comp', 'compressor'),
+    ('hyd', 'hydraulic'), ('elec', 'electrical'),
+    ('insp', 'inspect'), ('chk', 'check'),
+    ('leaking', 'leak'), ('seal', 'seal'), ('gbx', 'gearbox')
+on conflict do nothing;

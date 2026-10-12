@@ -15,6 +15,9 @@ ADMIN_ONLY = {
     ("GET", "/api/admin/users"),
     ("POST", "/api/admin/users"),
     ("PATCH", "/api/admin/users/{user_id}"),
+    ("GET", "/api/admin/terminology"),
+    ("PUT", "/api/admin/terminology"),
+    ("DELETE", "/api/admin/terminology/{term}"),
 }
 
 
@@ -38,7 +41,7 @@ def _secret(monkeypatch):
 
 
 def _url(path: str) -> str:
-    return path.replace("{log_id}", "1").replace("{connector_id}", "1").replace("{user_id}", "1").replace(
+    return path.replace("{log_id}", "1").replace("{connector_id}", "1").replace("{user_id}", "1").replace("{term}", "x").replace(
         "{job_id}", "x").replace("{item_id}", "1").replace("{run_id}", "1").replace(
         "{unified_id}", "x")
 

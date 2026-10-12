@@ -18,6 +18,7 @@ from app.db import get_pool
 from app.engine.graph.model import asset_node, rule_node
 from app.engine.graph.store import GraphStore
 from app.engine.resolution import SourceRecord
+from app.knowledge.terminology import key as term_key
 from app.services import auth, connectors, logs, pipeline
 from app.services.document_ingest import (
     _clean_system_name,
@@ -156,6 +157,33 @@ async def update_user(
     return dict(row)
 
 
+class TermIn(BaseModel):
+    term: str
+    canonical: str
+@router.get("/admin/terminology", dependencies=[_admin])
+async def list_terms() -> list[dict[str, Any]]:
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch("select term, canonical from terminology order by term")
+    return [dict(r) for r in rows]
+@router.put("/admin/terminology", dependencies=[_admin])
+async def upsert_term(req: TermIn) -> dict[str, Any]:
+    term, canonical = term_key(req.term), req.canonical.strip()
+    if not term or not canonical:
+        raise HTTPException(status_code=422, detail="term and canonical are required")
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            "insert into terminology (term, canonical) values ($1, $2) "
+            "on conflict (term) do update set canonical = excluded.canonical",
+            term, canonical,
+        )
+    return {"term": term, "canonical": canonical}
+@router.delete("/admin/terminology/{term}", dependencies=[_admin])
+async def delete_term(term: str) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        res = await conn.execute("delete from terminology where term = $1", term_key(term))
+    if res == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Term not found")
+    return {"deleted": term_key(term)}
 class RCARequest(BaseModel):
     question: str = ""
     asset: str | None = None   # asset id / identifier / name
