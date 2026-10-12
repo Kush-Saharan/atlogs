@@ -245,3 +245,20 @@ create table if not exists users (
     active        boolean not null default true,
     created_at    timestamptz not null default now()
 );
+
+-- ---------------------------------------------------------------------------
+-- Maintenance logs — the raw submitted text, never edited (spec M1).
+-- sha256 is indexed, not unique: a "submit anyway" duplicate is a second row.
+-- ---------------------------------------------------------------------------
+create table if not exists maintenance_logs (
+    id            bigserial primary key,
+    sha256        text not null,
+    filename      text,
+    original_text text not null,
+    submitted_by  bigint references users(id),
+    status        text not null default 'received'
+                  check (status in ('received', 'extracted', 'reviewed', 'error')),
+    error         text,
+    created_at    timestamptz not null default now()
+);
+create index if not exists maintenance_logs_sha256_idx on maintenance_logs (sha256);

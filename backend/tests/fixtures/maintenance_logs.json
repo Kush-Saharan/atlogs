@@ -1,0 +1,39 @@
+[
+  {"id": "spec-p104", "category": "spec_example", "text": "On 12 August, pump P-104 experienced excessive vibration near its motor bearing. The technician replaced the bearing and tested the equipment successfully."},
+  {"id": "spec-p104-short", "category": "spec_example", "text": "Pump P-104 experienced excessive vibration around the motor bearing. The bearing was replaced and the pump was tested."},
+
+  {"id": "overheat-1", "category": "motor_overheating", "text": "Motor overheated during operation. Tripped on thermal protection. Allowed to cool and restarted."},
+  {"id": "overheat-2", "category": "motor_overheating", "text": "Excessive temperature observed in the motor assembly of compressor C-210. Cooling fan found clogged with dust and cleaned."},
+  {"id": "overheat-3", "category": "motor_overheating", "text": "Motor temperature was above the normal range on conveyor drive M-33. Checked load, within limits. Greased the drive-end bearing."},
+  {"id": "overheat-4", "category": "motor_overheating", "text": "14/03/2024 - Motor M-07 running hot, winding temp 118C vs normal 85C. Cooling fins blocked. Cleaned fins, temp back to 82C."},
+  {"id": "overheat-5", "category": "motor_overheating", "text": "Operator reported the motor on fan F-12 is overheating and showing abnormal vibration. Bearing worn, replaced."},
+  {"id": "overheat-6", "category": "motor_overheating", "text": "Motor casing too hot to touch near the terminal box. Loose connection tightened. Temperature normal after 2 hours."},
+
+  {"id": "abbrev-1", "category": "abbreviations", "text": "Chgd brg on P-104 mtr. Vib high before, ok after. Lube'd and tested."},
+  {"id": "abbrev-2", "category": "abbreviations", "text": "Cmpr C-210 hi temp alarm. Chkd oil lvl, topped up. Rstrt ok."},
+  {"id": "abbrev-3", "category": "abbreviations", "text": "Repl. seal on pmp P-220 - leaking at shaft. Press test OK."},
+  {"id": "abbrev-4", "category": "abbreviations", "text": "Vib on M-33 drv end brg. Adj. coupling alignment, re-chk tmrw."},
+  {"id": "abbrev-5", "category": "abbreviations", "text": "HX-5 fouled, dP up. Cleaned tubes. Dp now nrml."},
+
+  {"id": "negation-1", "category": "negation", "text": "Inspected pump P-104. No leak found. Bearing was not replaced as vibration is within limits."},
+  {"id": "negation-2", "category": "negation", "text": "Motor M-07 did not overheat during the 4 hour run. No abnormal noise. Filter not changed."},
+  {"id": "negation-3", "category": "negation", "text": "Seal on P-220 not leaking after the repair. Without vibration or excess temperature at the bearing."},
+  {"id": "negation-4", "category": "negation", "text": "Checked for cracks on the impeller of P-104, none observed. Replacement not required."},
+  {"id": "negation-5", "category": "negation", "text": "Operator suspected overheating but motor temperature was not above normal. No action taken."},
+
+  {"id": "missing-1", "category": "missing_fields", "text": "Replaced the bearing."},
+  {"id": "missing-2", "category": "missing_fields", "text": "Pump making noise. Looked at it."},
+  {"id": "missing-3", "category": "missing_fields", "text": "Equipment 4 tripped yesterday. Reset."},
+  {"id": "missing-4", "category": "missing_fields", "text": "Valve V-18 stuck."},
+  {"id": "missing-5", "category": "missing_fields", "text": "Pump P-104 and P-105 both showed vibration. Bearing replaced on one of them."},
+
+  {"id": "unrelated-1", "category": "unrelated", "text": "Replaced the burnt-out lamps in the north stairwell and checked the emergency lighting."},
+  {"id": "unrelated-2", "category": "unrelated", "text": "Quarterly fire extinguisher inspection completed on level 2. All tags updated."},
+  {"id": "unrelated-3", "category": "unrelated", "text": "Painted the safety lines in the loading bay. Area closed until Friday."},
+  {"id": "unrelated-4", "category": "unrelated", "text": "Cleaned the cafeteria extraction hood filters and replaced the door closer on the west entrance."},
+  {"id": "unrelated-5", "category": "unrelated", "text": "Conveyor belt B-09 mistracking to the left. Adjusted the tail pulley and re-tensioned the belt."},
+
+  {"id": "other-1", "category": "other_equipment", "text": "Compressor C-210 discharge pressure low. Replaced the inlet valve reed. Pressure restored to 8 bar."},
+  {"id": "other-2", "category": "other_equipment", "text": "Gearbox GB-4 oil leak at output shaft seal. Seal replaced, oil topped up, no leak after 24 h."},
+  {"id": "other-3", "category": "other_equipment", "text": "Pump P-104 bearing temperature alarm again, second time this month. Checked lubrication, regreased. Monitoring."}
+]

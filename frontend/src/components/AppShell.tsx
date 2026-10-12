@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom'
 import {
   Boxes,
   ClipboardCheck,
+  FileText,
   Home,
   LogOut,
   Users,
@@ -31,6 +32,7 @@ const PRIMARY: NavItem[] = [
 ]
 
 const SECONDARY: NavItem[] = [
+  { to: '/logs', label: 'Logs', short: 'Logs', icon: FileText },
   { to: '/connectors', label: 'Connectors', short: 'Sources', icon: Plug },
   { to: '/assets', label: 'Assets', short: 'Assets', icon: Boxes },
   { to: '/review', label: 'Review queue', short: 'Review', icon: ClipboardCheck },

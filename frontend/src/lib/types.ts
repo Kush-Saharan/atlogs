@@ -281,3 +281,13 @@ export interface HistoryItem {
 export interface HistoryRun extends HistoryItem {
   result: RcaResult | ComplianceResult
 }
+
+export interface MaintenanceLog {
+  id: number
+  filename: string | null
+  status: 'received' | 'extracted' | 'reviewed' | 'error'
+  error: string | null
+  submitted_by: number | null
+  created_at: string
+  preview: string
+}

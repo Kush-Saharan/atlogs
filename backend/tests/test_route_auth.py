@@ -38,7 +38,7 @@ def _secret(monkeypatch):
 
 
 def _url(path: str) -> str:
-    return path.replace("{connector_id}", "1").replace("{user_id}", "1").replace(
+    return path.replace("{log_id}", "1").replace("{connector_id}", "1").replace("{user_id}", "1").replace(
         "{job_id}", "x").replace("{item_id}", "1").replace("{run_id}", "1").replace(
         "{unified_id}", "x")
 

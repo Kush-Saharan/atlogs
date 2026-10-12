@@ -13,6 +13,7 @@ import { Assets } from '@/pages/Assets'
 import { Review } from '@/pages/Review'
 import { Login } from '@/pages/Login'
 import { Users } from '@/pages/Users'
+import { Logs } from '@/pages/Logs'
 import { RequireAuth } from '@/lib/auth'
 
 function App() {
@@ -32,6 +33,7 @@ function App() {
           <Route path="/workflows/rca" element={<Rca />} />
           <Route path="/workflows/compliance" element={<Compliance />} />
           <Route path="/assets" element={<Assets />} />
+          <Route path="/logs" element={<Logs />} />
           <Route path="/review" element={<Review />} />
           <Route path="/admin/users" element={<RequireAuth roles={['admin']}><Users /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />

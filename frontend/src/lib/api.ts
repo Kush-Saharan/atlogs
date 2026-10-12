@@ -6,6 +6,7 @@ import type {
   GraphData,
   HistoryItem,
   HistoryRun,
+  MaintenanceLog,
   Overview,
   ReviewItem,
   WorkflowEvent,
@@ -80,6 +81,7 @@ export const api = {
     sendJSON<User>('POST', '/api/admin/users', body),
   updateUser: (id: number, body: { role?: string; active?: boolean }) =>
     sendJSON<User>('PATCH', `/api/admin/users/${id}`, body),
+  logs: (signal?: AbortSignal) => getJSON<MaintenanceLog[]>('/api/logs', signal),
   overview: (signal?: AbortSignal) => getJSON<Overview>('/api/overview', signal),
   graph: (asset?: string, signal?: AbortSignal) =>
     getJSON<GraphData>(
@@ -215,4 +217,34 @@ export async function* streamJob(
     signal,
   })
   yield* readSSE(res, `GET /api/documents/jobs/${jobId}/stream`)
+}
+
+/** Thrown by submitLog; `existingId` is set on a 409 duplicate. */
+export class LogSubmitError extends Error {
+  status: number
+  existingId?: number
+  constructor(message: string, status: number, existingId?: number) {
+    super(message)
+    this.status = status
+    this.existingId = existingId
+  }
+}
+
+/** Submit a maintenance log as pasted text or a file (multipart). */
+export async function submitLog(
+  input: { text?: string; file?: File | null; force?: boolean },
+): Promise<MaintenanceLog> {
+  const fd = new FormData()
+  if (input.file) fd.append('file', input.file)
+  else fd.append('text', input.text ?? '')
+  if (input.force) fd.append('force', 'true')
+  const res = await authFetch(`${API_URL}/api/logs`, { method: 'POST', body: fd })
+  if (res.ok) return (await res.json()) as MaintenanceLog
+  const body = await res.json().catch(() => ({}))
+  const d = body.detail
+  throw new LogSubmitError(
+    typeof d === 'string' ? d : (d?.message ?? `Upload failed (${res.status})`),
+    res.status,
+    d?.existing_id,
+  )
 }

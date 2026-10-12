@@ -10,7 +10,7 @@ import json
 from typing import Any
 
 from asyncpg.exceptions import UniqueViolationError
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -18,7 +18,7 @@ from app.db import get_pool
 from app.engine.graph.model import asset_node, rule_node
 from app.engine.graph.store import GraphStore
 from app.engine.resolution import SourceRecord
-from app.services import auth, connectors, pipeline
+from app.services import auth, connectors, logs, pipeline
 from app.services.document_ingest import (
     _clean_system_name,
     ingest_documents_events,
@@ -181,6 +181,33 @@ class ConnectorCreate(BaseModel):
 
 class SyncRequest(BaseModel):
     payload: Any = None  # optional inline records to store before syncing
+
+
+@router.post("/logs", status_code=201)
+async def submit_log(
+    text: str | None = Form(default=None),
+    file: UploadFile | None = File(default=None),
+    force: bool = Form(default=False),
+    user: dict = Depends(auth.require_role()),
+) -> dict[str, Any]:
+    """Pasted text OR a .txt/.log/.csv upload (max 1 MB). 409 on a duplicate unless force."""
+    if file is not None and file.filename:
+        data, name = await file.read(logs.MAX_BYTES + 1), file.filename
+    elif text is not None:
+        data, name = text.encode(), None
+    else:
+        raise HTTPException(status_code=400, detail="Provide text or a file")
+    return await logs.submit(logs.validate(name, data), name, user["uid"], force)
+
+
+@router.get("/logs")
+async def list_logs() -> list[dict[str, Any]]:
+    return await logs.list_logs()
+
+
+@router.get("/logs/{log_id}")
+async def get_log(log_id: int) -> dict[str, Any]:
+    return await logs.get_log(log_id)
 
 
 @router.post("/discover")
