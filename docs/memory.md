@@ -66,7 +66,7 @@ Equipment → `unified_assets`; Resources → `technicians`, `parts`; Risk →
 |-------|-------------|-------|
 | `users` | email unique, password_hash, role (`engineer`/`manager`/`admin`), active | scrypt hash; never store plain passwords |
 | `maintenance_logs` | sha256 unique, filename, original_text, submitted_by, status (`received`/`extracted`/`reviewed`/`error`), error | `original_text` never modified |
-| `maintenance_records` | log_id FK, `extracted` jsonb (value, span, confidence, needs_review per field), `reviewed` jsonb, reviewed_by, reviewed_at, unified_id | Reviewed values stored **beside** extracted, never over them |
+| `maintenance_records` | log_id FK unique, `extracted` jsonb (value, span, confidence, needs_review per field), `reviewed` jsonb, reviewed_by, reviewed_at, unified_id | Reviewed values stored **beside** extracted, never over them |
 | `terminology` | term, canonical, kind (component/symptom/action/abbrev) | Seeded (e.g. brg → bearing) |
 | `risk_assessments` | record_id FK, score, category, factors jsonb, method_version, insufficient_evidence | Insert-only; labelled *uncalibrated* |
 | `recommendations` | record_id FK, risk_id FK, priority, explanation jsonb, status (`pending`/`approved`/`modified`/`rejected`) | Status changes only via a decision |

@@ -54,6 +54,9 @@ def test_validate_accepts_allowed_types():
 
 @pytest.mark.skipif(not DSN, reason="DATABASE_URL not set")
 class TestLogsApi:
+    @pytest.fixture(autouse=True)
+    def no_llm(self, monkeypatch):
+        monkeypatch.delenv("NVIDIA_API_KEY", raising=False)  # tests never call the network
     @pytest.fixture(scope="class")
     def ctx(self):
         os.environ.setdefault("AUTH_SECRET", "test-secret")
@@ -72,6 +75,8 @@ class TestLogsApi:
         headers = {"Authorization": f"Bearer {auth.make_token(uid, 'engineer')}"}
         with TestClient(app) as client:
             yield client, headers, db, uid
+        asyncio.run(db("delete from maintenance_records where log_id in"
+                       " (select id from maintenance_logs where submitted_by = $1)", uid))
         asyncio.run(db("delete from maintenance_logs where submitted_by = $1", uid))
         asyncio.run(db("delete from users where id = $1", uid))
 
@@ -89,7 +94,7 @@ class TestLogsApi:
         client, h, *_ = ctx
         text = f"Pump P-104 vibration {uuid.uuid4()}"
         first = client.post("/api/logs", headers=h, data={"text": text})
-        assert first.status_code == 201 and first.json()["status"] == "received"
+        assert first.status_code == 201 and first.json()["status"] == "extracted"
         dup = client.post("/api/logs", headers=h, files={"file": ("x.log", text.encode())})
         assert dup.status_code == 409
         assert dup.json()["detail"]["existing_id"] == first.json()["id"]
@@ -109,7 +114,7 @@ class TestLogsApi:
     def test_extraction_failure_keeps_original_with_error(self, ctx, monkeypatch):
         client, h, *_ = ctx
 
-        def boom(_text):
+        async def boom(_conn, _text):
             raise RuntimeError("extractor exploded")
 
         monkeypatch.setattr(logs, "extract", boom)
@@ -121,6 +126,8 @@ class TestLogsApi:
 
     def test_successful_extraction_sets_extracted(self, ctx, monkeypatch):
         client, h, *_ = ctx
-        monkeypatch.setattr(logs, "extract", lambda _t: {"ok": True})
+        async def fake(_conn, _text):
+            return {"ok": True}
+        monkeypatch.setattr(logs, "extract", fake)
         r = client.post("/api/logs", headers=h, data={"text": f"Fan ok {uuid.uuid4()}"})
         assert r.json()["status"] == "extracted"

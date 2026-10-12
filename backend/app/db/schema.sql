@@ -264,6 +264,21 @@ create table if not exists maintenance_logs (
 create index if not exists maintenance_logs_sha256_idx on maintenance_logs (sha256);
 
 -- ---------------------------------------------------------------------------
+-- Maintenance records — structured fields extracted from a log (spec M2).
+-- `extracted` is written once by the extractor; reviewed values go in `reviewed`
+-- beside it, never over it (M.5).
+-- ---------------------------------------------------------------------------
+create table if not exists maintenance_records (
+    id          bigserial primary key,
+    log_id      bigint not null unique references maintenance_logs(id),
+    extracted   jsonb not null,
+    reviewed    jsonb,
+    reviewed_by bigint references users(id),
+    reviewed_at timestamptz,
+    unified_id  text,
+    created_at  timestamptz not null default now()
+);
+-- ---------------------------------------------------------------------------
 -- Terminology — abbreviation/synonym -> canonical term (spec M2 step 6).
 -- `term` is stored in normalised form (lowercase, no punctuation).
 -- ---------------------------------------------------------------------------

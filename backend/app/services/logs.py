@@ -1,25 +1,58 @@
 """Maintenance-log intake (spec M1): validate, decode, hash, store the original first.
 
-Extraction (M.4) plugs in through `extract`; until then it returns None and a log
-stays `received`. A failing extractor marks the log `error` — the original text is
-already saved and is never touched afterwards.
+Extraction (M.4) runs through `extract`. A failing extractor marks the log `error` —
+the original text is already saved and is never touched afterwards.
 """
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 from typing import Any
 
 from fastapi import HTTPException
 
 from app.db import get_pool
+from app.engine import log_extract
 
 MAX_BYTES = 1_000_000  # 1 MB
 ALLOWED_EXT = (".txt", ".log", ".csv")
 
 
-def extract(text: str) -> Any | None:
-    """Placeholder for the M.4 extractor. None = nothing extracted yet."""
-    return None
+_LLM_FIELDS = ("equipment", "component", "symptom", "action", "outcome", "date")
+
+
+async def fill_with_llm(text: str, result: dict[str, Any], api_key: str) -> dict[str, Any]:
+    """M-D3: ask the LLM only for fields the rules left empty. Skipped without a key.
+    A value is kept only if it appears verbatim in the log (gives a real span)."""
+    empty = [f for f in _LLM_FIELDS if result["fields"].get(f) is None]
+    if not api_key or not empty:
+        return result
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from app.services.llm import get_extract_model, resilient  # shares the NVIDIA rate limiter
+    from app.workflows.extract_ops import _extract_json, _text_of
+    try:
+        out = await resilient(get_extract_model()).ainvoke([
+            SystemMessage(content="detailed thinking off\nExtract maintenance facts. Copy "
+                          "values verbatim from the log. Use null if absent or negated."),
+            HumanMessage(content=f"Log:\n{text}\n\nReturn ONLY a JSON object with keys "
+                         f"{json.dumps(empty)}.")])
+        data = _extract_json(_text_of(out)) or {}
+    except Exception:  # noqa: BLE001 - the LLM is optional; rule results stand
+        return result
+    for f in empty:
+        v = data.get(f)
+        i = text.lower().find(v.strip().lower()) if isinstance(v, str) and v.strip() else -1
+        if i >= 0:
+            result["fields"][f] = {"value": v.strip(), "span": [i, i + len(v.strip())],
+                                   "confidence": 0.5, "needs_review": True, "source": "llm"}
+    return result
+
+
+async def extract(conn: Any, text: str) -> dict[str, Any]:
+    rows = await conn.fetch("select term, canonical from terminology")
+    result = log_extract.extract(text, {r["term"]: r["canonical"] for r in rows})
+    return await fill_with_llm(text, result, os.environ.get("NVIDIA_API_KEY", ""))
 
 
 def decode(data: bytes) -> str:
@@ -68,9 +101,13 @@ async def submit(
             digest, filename, text, user_id,
         )
         try:
-            status = "received" if extract(text) is None else "extracted"
+            result = await extract(conn, text)
             await conn.execute(
-                "update maintenance_logs set status = $2 where id = $1", log_id, status
+                "insert into maintenance_records (log_id, extracted) values ($1, $2)",
+                log_id, json.dumps(result),
+            )
+            await conn.execute(
+                "update maintenance_logs set status = 'extracted' where id = $1", log_id
             )
         except Exception as exc:  # noqa: BLE001 - any extractor failure becomes status=error
             await conn.execute(
