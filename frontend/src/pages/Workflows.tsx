@@ -2,8 +2,6 @@ import { Link } from 'react-router-dom'
 import {
   ArrowRight,
   FileText,
-  Radio,
-  ShieldCheck,
   Upload,
   type LucideIcon,
 } from 'lucide-react'
@@ -55,20 +53,7 @@ const WORKFLOWS: WF[] = [
     tone: 'verified',
     cta: 'Open Connectors',
   },
-  {
-    to: '/workflows/rca',
-    icon: Radio,
-    title: 'Root cause analysis',
-    tone: 'review',
-    cta: 'Open RCA',
-  },
-  {
-    to: '/workflows/compliance',
-    icon: ShieldCheck,
-    title: 'Compliance',
-    tone: 'linked',
-    cta: 'Open Compliance',
-  },
+  // RCA and Compliance are hidden from the hub (M-D1); their routes still work.
 ]
 
 export function Workflows() {

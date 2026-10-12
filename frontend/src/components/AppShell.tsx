@@ -4,7 +4,6 @@ import {
   Boxes,
   ClipboardCheck,
   Home,
-  MessageSquareText,
   PanelLeft,
   Plug,
   Share2,
@@ -25,7 +24,6 @@ interface NavItem {
 const PRIMARY: NavItem[] = [
   { to: '/', label: 'Home', short: 'Home', icon: Home },
   { to: '/graph', label: 'Knowledge graph', short: 'Graph', icon: Share2 },
-  { to: '/ask', label: 'Ask Copilot', short: 'Ask', icon: MessageSquareText },
   { to: '/workflows', label: 'Workflows', short: 'Work', icon: SquareStack },
 ]
 

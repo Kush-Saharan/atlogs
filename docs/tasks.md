@@ -24,7 +24,7 @@ a row moves to ✅ only when its test or demo evidence is linked here.
 | Shared 35-rpm rate limiter | `services/rate_limit.py` | — | existing — not yet verified |
 | SSE streaming | `workflows/base.py`, `frontend/src/lib/api.ts` | — | existing — not yet verified |
 | Frontend pages: Home, Graph, Workflows, Connectors, Assets, Review queue, Documents | `frontend/src/pages/` | build + lint only | existing — not yet verified |
-| Hidden (M-D1): Ask Copilot, RCA, Compliance | `workflows/chat.py`, `rca.py`, `compliance.py` | `test_chat_guard.py`, `test_chat_router.py`, `test_rca_calibration.py`, `test_workflows_rca_compliance.py` | existing — to hide in M.0 |
+| Hidden (M-D1): Ask Copilot, RCA, Compliance | `workflows/chat.py`, `rca.py`, `compliance.py` | `test_chat_guard.py`, `test_chat_router.py`, `test_rca_calibration.py`, `test_workflows_rca_compliance.py` | hidden from nav and Workflows hub (M.0); routes unchanged |
 | Docker images + deploy configs | `Dockerfile`, `Dockerfile.slim`, `render.yaml`, `railway.toml`, `deploy/`, `frontend/vercel.json` | — | config exists — no deployment verified |
 
 Backend paths are under `backend/app/`, tests under `backend/tests/`.
@@ -114,7 +114,7 @@ resolution, `edges` and `hybrid_search` work unchanged.
 
 | # | Task | Spec | Depends | Owner | Status | Evidence |
 |---|------|------|---------|-------|--------|----------|
-| M.0 | Hide Ask, RCA, Compliance from nav (M-D1); README run/test instructions | §13.1 | — | — | ⬜ | build + lint pass, browser check |
+| M.0 | Hide Ask, RCA, Compliance from nav (M-D1); README run/test instructions | §13.1 | — | — | 🔄 | Nav/hub hiding done: `npm run build` ok, lint 8 pre-existing errors (no new), pytest 43 passed (DB), browser: nav and Workflows hub hide Ask/RCA/Compliance, `/ask` and `/workflows/rca` still load. Remaining: README run/test instructions |
 | M.1 | `users` table, password hashing, signed token, `require_role()` dependency on every route, login endpoint + page, admin user script | §4, §11, M-D2 | — | — | ⬜ | tests: wrong password, expired/forged token, role denied |
 | M.2 | Log ingestion: `POST /api/logs` (text or `.txt`/`.log`/`.csv` upload), size/type validation, sha256 duplicate warning with "submit anyway", original text preserved, status lifecycle; list + detail routes | M1 | M.1 | — | ⬜ | tests: invalid type rejected, duplicate warned, failure leaves `error` not a complete record |
 | M.3 | Terminology table + seed (abbrevs like brg→bearing, vib→vibration) | M2 step 6 | — | — | ⬜ | unit test of normaliser |
