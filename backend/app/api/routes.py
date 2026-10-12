@@ -238,6 +238,20 @@ async def get_log(log_id: int) -> dict[str, Any]:
     return await logs.get_log(log_id)
 
 
+class ReviewBody(BaseModel):
+    fields: dict[str, str | None]  # all six fields; empty/null means "no value"
+
+
+@router.put("/records/{log_id}/review")
+async def review_record(
+    log_id: int,
+    body: ReviewBody,
+    user: dict = Depends(auth.require_role("engineer", "admin")),
+) -> dict[str, Any]:
+    """The path id is the log id (one record per log). Managers decide, they do not edit fields."""
+    return await logs.review(log_id, body.fields, user["uid"])
+
+
 @router.post("/discover")
 async def discover(req: DiscoverRequest) -> dict[str, Any]:
     result = pipeline.run_discovery(req.records)

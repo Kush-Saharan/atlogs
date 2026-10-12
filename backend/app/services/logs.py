@@ -137,6 +137,37 @@ async def get_log(log_id: int) -> dict[str, Any]:
             " original_text from maintenance_logs where id = $1",
             log_id,
         )
+        rec = await conn.fetchrow(
+            "select extracted, reviewed, reviewed_by, reviewed_at from maintenance_records"
+            " where log_id = $1", log_id)
     if row is None:
         raise HTTPException(404, "Log not found")
-    return dict(row)
+    out = dict(row)
+    out["record"] = None if rec is None else {
+        **rec, "extracted": json.loads(rec["extracted"]),
+        "reviewed": json.loads(rec["reviewed"]) if rec["reviewed"] else None}
+    return out
+
+
+async def review(log_id: int, fields: dict[str, str | None], user_id: int) -> dict[str, Any]:
+    """Save reviewed values beside `extracted` (never over it); the log text is untouched."""
+    bad = set(fields) - set(_LLM_FIELDS)
+    if bad:
+        raise HTTPException(422, f"Unknown field(s): {', '.join(sorted(bad))}")
+    clean = {}
+    for k, v in fields.items():
+        v = (v or "").strip()
+        if len(v) > 500:
+            raise HTTPException(422, f"{k} is longer than 500 characters")
+        clean[k] = {"value": v or None}
+    async with get_pool().acquire() as conn:
+        async with conn.transaction():
+            ok = await conn.fetchval(
+                "update maintenance_records set reviewed = $2, reviewed_by = $3,"
+                " reviewed_at = now() where log_id = $1 returning id",
+                log_id, json.dumps(clean), user_id)
+            if ok is None:
+                raise HTTPException(404, "No extracted record for this log")
+            await conn.execute(
+                "update maintenance_logs set status = 'reviewed' where id = $1", log_id)
+    return await get_log(log_id)

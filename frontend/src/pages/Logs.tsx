@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { PageHeader } from '@/components/PageHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -84,7 +85,9 @@ export function Logs() {
           <Card key={l.id} className="flex items-start justify-between gap-3 p-3">
             <div className="min-w-0">
               <p className="text-sm font-medium">
-                #{l.id}{l.filename ? ` · ${l.filename}` : ''}
+                <Link to={`/logs/${l.id}`} className="underline underline-offset-2">
+                  #{l.id}{l.filename ? ` · ${l.filename}` : ''}
+                </Link>
               </p>
               <p className="truncate text-sm text-muted-foreground">{l.preview}</p>
               {l.error && <p className="text-sm text-destructive">{l.error}</p>}

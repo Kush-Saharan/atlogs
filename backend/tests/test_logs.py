@@ -131,3 +131,48 @@ class TestLogsApi:
         monkeypatch.setattr(logs, "extract", fake)
         r = client.post("/api/logs", headers=h, data={"text": f"Fan ok {uuid.uuid4()}"})
         assert r.json()["status"] == "extracted"
+
+
+@pytest.mark.skipif(not DSN, reason="DATABASE_URL not set")
+class TestReview:
+    @pytest.fixture(autouse=True)
+    def no_llm(self, monkeypatch):
+        monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+
+    def test_review_persists_beside_extracted_and_denies_manager(self):
+        os.environ.setdefault("AUTH_SECRET", "test-secret")
+        async def db(sql, *args):
+            conn = await asyncpg.connect(DSN)
+            try:
+                return await conn.fetchval(sql, *args)
+            finally:
+                await conn.close()
+        uid = asyncio.run(db("insert into users (email, password_hash, role) values ($1, 'x',"
+                             " 'engineer') returning id", f"rev-{uuid.uuid4().hex[:8]}@test.local"))
+        eng = {"Authorization": f"Bearer {auth.make_token(uid, 'engineer')}"}
+        mgr = {"Authorization": f"Bearer {auth.make_token(uid, 'manager')}"}
+        text = f"Pump P-104 had excessive vibration, bearing replaced {uuid.uuid4()}"
+        try:
+            with TestClient(app) as c:
+                log = c.post("/api/logs", headers=eng, data={"text": text}).json()
+                before = c.get(f"/api/logs/{log['id']}", headers=eng).json()
+                url = f"/api/records/{log['id']}/review"
+                body = {"fields": {"equipment": "P-105", "outcome": "  "}}
+                assert c.put(url, json=body).status_code == 401
+                assert c.put(url, headers=mgr, json=body).status_code == 403
+                assert c.put(url, headers=eng, json={"fields": {"bogus": "x"}}).status_code == 422
+                assert c.put("/api/records/999999999/review", headers=eng, json=body).status_code == 404
+                r = c.put(url, headers=eng, json=body)
+                assert r.status_code == 200 and r.json()["status"] == "reviewed"
+                after = c.get(f"/api/logs/{log['id']}", headers=eng).json()
+                rec = after["record"]
+                assert rec["reviewed"] == {"equipment": {"value": "P-105"}, "outcome": {"value": None}}
+                assert rec["reviewed_by"] == uid and rec["reviewed_at"]
+                assert rec["extracted"] == before["record"]["extracted"]  # unchanged
+                assert rec["extracted"]["fields"]["equipment"]["value"] == "Pump P-104"
+                assert after["original_text"] == text == before["original_text"]
+        finally:
+            asyncio.run(db("delete from maintenance_records where log_id in"
+                           " (select id from maintenance_logs where submitted_by = $1)", uid))
+            asyncio.run(db("delete from maintenance_logs where submitted_by = $1", uid))
+            asyncio.run(db("delete from users where id = $1", uid))

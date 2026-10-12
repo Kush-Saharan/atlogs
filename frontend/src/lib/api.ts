@@ -7,6 +7,7 @@ import type {
   HistoryItem,
   HistoryRun,
   MaintenanceLog,
+  MaintenanceLogDetail,
   Overview,
   ReviewItem,
   WorkflowEvent,
@@ -82,6 +83,10 @@ export const api = {
   updateUser: (id: number, body: { role?: string; active?: boolean }) =>
     sendJSON<User>('PATCH', `/api/admin/users/${id}`, body),
   logs: (signal?: AbortSignal) => getJSON<MaintenanceLog[]>('/api/logs', signal),
+  log: (id: number, signal?: AbortSignal) =>
+    getJSON<MaintenanceLogDetail>(`/api/logs/${id}`, signal),
+  reviewLog: (id: number, fields: Record<string, string>) =>
+    sendJSON<MaintenanceLogDetail>('PUT', `/api/records/${id}/review`, { fields }),
   overview: (signal?: AbortSignal) => getJSON<Overview>('/api/overview', signal),
   graph: (asset?: string, signal?: AbortSignal) =>
     getJSON<GraphData>(

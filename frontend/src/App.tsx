@@ -14,6 +14,7 @@ import { Review } from '@/pages/Review'
 import { Login } from '@/pages/Login'
 import { Users } from '@/pages/Users'
 import { Logs } from '@/pages/Logs'
+import { LogReview } from '@/pages/LogReview'
 import { RequireAuth } from '@/lib/auth'
 
 function App() {
@@ -34,6 +35,7 @@ function App() {
           <Route path="/workflows/compliance" element={<Compliance />} />
           <Route path="/assets" element={<Assets />} />
           <Route path="/logs" element={<Logs />} />
+          <Route path="/logs/:id" element={<LogReview />} />
           <Route path="/review" element={<Review />} />
           <Route path="/admin/users" element={<RequireAuth roles={['admin']}><Users /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />

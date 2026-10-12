@@ -291,3 +291,22 @@ export interface MaintenanceLog {
   created_at: string
   preview: string
 }
+
+export const LOG_FIELDS = ['equipment', 'component', 'symptom', 'action', 'outcome', 'date'] as const
+export type LogField = (typeof LOG_FIELDS)[number]
+export interface ExtractedField {
+  value: string
+  span: [number, number]
+  confidence: number
+  needs_review: boolean
+  source: string
+}
+export interface MaintenanceLogDetail extends MaintenanceLog {
+  original_text: string
+  record: {
+    extracted: { fields: Record<string, ExtractedField | null> }
+    reviewed: Record<string, { value: string | null }> | null
+    reviewed_by: number | null
+    reviewed_at: string | null
+  } | null
+}
