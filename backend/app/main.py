@@ -27,6 +27,7 @@ from fastapi.responses import JSONResponse
 
 from .api.routes import router as api_router
 from .config import get_settings
+from .services.auth import get_secret
 from .db import check_database, close_pool, init_pool
 
 
@@ -51,6 +52,7 @@ async def _warm_embeddings() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    get_secret()  # fail clearly if AUTH_SECRET is missing
     # Create the Postgres pool on startup, tear it down on shutdown. If the DB
     # is unreachable, log the host + error clearly (a hung/blank startup is the
     # usual "stuck at Deploying" symptom) before failing — never leak the password.

@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import APIRouter, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -17,7 +17,7 @@ from app.db import get_pool
 from app.engine.graph.model import asset_node, rule_node
 from app.engine.graph.store import GraphStore
 from app.engine.resolution import SourceRecord
-from app.services import connectors, pipeline
+from app.services import auth, connectors, pipeline
 from app.services.document_ingest import (
     _clean_system_name,
     ingest_documents_events,
@@ -58,6 +58,31 @@ class IngestRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+@router.post("/auth/login")
+async def login(req: LoginRequest) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "select id, email, password_hash, role from users where email = $1 and active",
+            req.email.strip().lower(),
+        )
+    if row is None or not auth.verify_password(req.password, row["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    return {
+        "token": auth.make_token(row["id"], row["role"]),
+        "user": {"id": row["id"], "email": row["email"], "role": row["role"]},
+    }
+@router.get("/auth/me")
+async def me(user: dict = Depends(auth.require_role())) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "select id, email, role from users where id = $1 and active", user["uid"]
+        )
+    if row is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return dict(row)
     intent: str | None = None  # optional override (ask|rca|compliance|asset_lookup)
 
 

@@ -233,3 +233,15 @@ create table if not exists manual_decisions (
     created_at timestamptz not null default now(),
     unique (kind, record_a, record_b)
 );
+
+-- ---------------------------------------------------------------------------
+-- Users — role-based access (M-D2). Passwords are scrypt hashes, never plain.
+-- ---------------------------------------------------------------------------
+create table if not exists users (
+    id            bigserial primary key,
+    email         text not null unique,
+    password_hash text not null,
+    role          text not null check (role in ('engineer', 'manager', 'admin')),
+    active        boolean not null default true,
+    created_at    timestamptz not null default now()
+);
