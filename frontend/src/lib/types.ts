@@ -85,6 +85,20 @@ export interface AssetSummary {
   needs_review: boolean
   review_reason: string
   identifiers: AssetIdentifier[]
+  criticality: string
+}
+
+export interface Technician {
+  id: number
+  name: string
+  skills: string[]
+  availability: { start: string; end: string }[]
+}
+
+export interface Part {
+  id: number
+  name: string
+  stock: number
 }
 
 export interface ReviewCandidate {

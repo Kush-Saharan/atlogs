@@ -299,3 +299,29 @@ insert into terminology (term, canonical) values
     ('insp', 'inspect'), ('chk', 'check'),
     ('leaking', 'leak'), ('seal', 'seal'), ('gbx', 'gearbox')
 on conflict do nothing;
+-- ---------------------------------------------------------------------------
+-- Resources (M.8, M-D8) — entered through the admin pages; no seed data.
+-- Criticality is keyed by an asset identifier (concept, lower(value)), NOT by
+-- unified_id: unified_assets is rebuilt on every ingest and ids are positional.
+-- ---------------------------------------------------------------------------
+create table if not exists asset_criticality (
+    concept    text not null,
+    value      text not null,                     -- lower-cased identifier value
+    level      text not null check (level in ('low', 'medium', 'high')),
+    updated_at timestamptz not null default now(),
+    primary key (concept, value)
+);
+create table if not exists technicians (
+    id         bigserial primary key,
+    name       text not null unique,
+    skills     text[] not null default '{}',
+    -- [{"start": "2025-08-12T08:00", "end": "2025-08-12T16:00"}, ...]
+    availability jsonb not null default '[]',
+    created_at timestamptz not null default now()
+);
+create table if not exists parts (
+    id         bigserial primary key,
+    name       text not null unique,
+    stock      integer not null default 0 check (stock >= 0),
+    created_at timestamptz not null default now()
+);

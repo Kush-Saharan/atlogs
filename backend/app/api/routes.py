@@ -48,6 +48,7 @@ router = APIRouter(
 # Login is the only route reachable without a token (main.py attaches both).
 public_router = APIRouter(prefix="/api", tags=["auth"])
 _admin = Depends(auth.require_role("admin"))
+_manager = Depends(auth.require_role("manager", "admin"))
 _graph = GraphStore()
 
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
@@ -455,6 +456,11 @@ async def list_assets() -> list[dict[str, Any]]:
         idents = await conn.fetch(
             "select unified_id, concept, value, is_primary from asset_identifiers"
         )
+        crit = await conn.fetch(
+            "select i.unified_id, c.level from asset_criticality c "
+            "join asset_identifiers i on i.concept = c.concept and lower(i.value) = c.value"
+        )
+    levels = {r["unified_id"]: r["level"] for r in crit}
     by_asset: dict[str, list[dict[str, Any]]] = {}
     for r in idents:
         by_asset.setdefault(r["unified_id"], []).append(
@@ -467,9 +473,117 @@ async def list_assets() -> list[dict[str, Any]]:
             "needs_review": a["needs_review"],
             "review_reason": a["review_reason"],
             "identifiers": by_asset.get(a["unified_id"], []),
+            "criticality": levels.get(a["unified_id"], "unknown"),
         }
         for a in assets
     ]
+class CriticalityIn(BaseModel):
+    level: str = Field(pattern="^(low|medium|high|unknown)$")
+@router.put("/assets/{unified_id}/criticality", dependencies=[_manager])
+async def set_criticality(unified_id: str, req: CriticalityIn) -> dict[str, Any]:
+    # shortcut: keyed by one identifier (primary first); if that identifier changes, re-set it.
+    async with get_pool().acquire() as conn:
+        ident = await conn.fetchrow(
+            "select concept, lower(value) as value from asset_identifiers "
+            "where unified_id = $1 order by is_primary desc, id limit 1",
+            unified_id,
+        )
+        if ident is None:
+            raise HTTPException(status_code=404, detail="Asset not found or has no identifier")
+        # Clear every identifier of this asset so a stale level cannot win.
+        await conn.execute(
+            "delete from asset_criticality c using asset_identifiers i "
+            "where i.unified_id = $1 and i.concept = c.concept and lower(i.value) = c.value",
+            unified_id,
+        )
+        if req.level != "unknown":
+            await conn.execute(
+                "insert into asset_criticality (concept, value, level) values ($1, $2, $3)",
+                ident["concept"], ident["value"], req.level,
+            )
+    return {"unified_id": unified_id, "criticality": req.level}
+class Window(BaseModel):
+    start: str
+    end: str
+class TechnicianIn(BaseModel):
+    name: str = Field(min_length=1)
+    skills: list[str] = Field(default_factory=list)
+    availability: list[Window] = Field(default_factory=list)
+class PartIn(BaseModel):
+    name: str = Field(min_length=1)
+    stock: int = Field(ge=0)
+def _tech(r) -> dict[str, Any]:
+    return {"id": r["id"], "name": r["name"], "skills": r["skills"],
+            "availability": json.loads(r["availability"])}
+@router.get("/resources/technicians", dependencies=[_manager])
+async def list_technicians() -> list[dict[str, Any]]:
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch("select id, name, skills, availability::text from technicians order by name")
+    return [_tech(r) for r in rows]
+@router.post("/resources/technicians", dependencies=[_manager], status_code=201)
+async def create_technician(req: TechnicianIn) -> dict[str, Any]:
+    return await _save_technician(None, req)
+@router.put("/resources/technicians/{tid}", dependencies=[_manager])
+async def update_technician(tid: int, req: TechnicianIn) -> dict[str, Any]:
+    return await _save_technician(tid, req)
+async def _save_technician(tid: int | None, req: TechnicianIn) -> dict[str, Any]:
+    skills = sorted({s.strip().lower() for s in req.skills if s.strip()})
+    avail = json.dumps([w.model_dump() for w in req.availability if w.start < w.end])
+    if len(json.loads(avail)) != len(req.availability):
+        raise HTTPException(status_code=422, detail="Each window must end after it starts")
+    sql = ("insert into technicians (name, skills, availability) values ($1, $2, $3::jsonb) "
+           "returning id, name, skills, availability::text" if tid is None else
+           "update technicians set name = $1, skills = $2, availability = $3::jsonb "
+           "where id = $4 returning id, name, skills, availability::text")
+    try:
+        async with get_pool().acquire() as conn:
+            row = await conn.fetchrow(sql, req.name.strip(), skills, avail, *([] if tid is None else [tid]))
+    except UniqueViolationError:
+        raise HTTPException(status_code=409, detail="A technician with that name exists")
+    if row is None:
+        raise HTTPException(status_code=404, detail="Technician not found")
+    return _tech(row)
+@router.delete("/resources/technicians/{tid}", dependencies=[_manager])
+async def delete_technician(tid: int) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        res = await conn.execute("delete from technicians where id = $1", tid)
+    if res == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Technician not found")
+    return {"deleted": tid}
+@router.get("/resources/parts", dependencies=[_manager])
+async def list_parts() -> list[dict[str, Any]]:
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch("select id, name, stock from parts order by name")
+    return [dict(r) for r in rows]
+@router.post("/resources/parts", dependencies=[_manager], status_code=201)
+async def create_part(req: PartIn) -> dict[str, Any]:
+    try:
+        async with get_pool().acquire() as conn:
+            row = await conn.fetchrow(
+                "insert into parts (name, stock) values ($1, $2) returning id, name, stock",
+                req.name.strip(), req.stock)
+    except UniqueViolationError:
+        raise HTTPException(status_code=409, detail="A part with that name exists")
+    return dict(row)
+@router.put("/resources/parts/{pid}", dependencies=[_manager])
+async def update_part(pid: int, req: PartIn) -> dict[str, Any]:
+    try:
+        async with get_pool().acquire() as conn:
+            row = await conn.fetchrow(
+                "update parts set name = $1, stock = $2 where id = $3 returning id, name, stock",
+                req.name.strip(), req.stock, pid)
+    except UniqueViolationError:
+        raise HTTPException(status_code=409, detail="A part with that name exists")
+    if row is None:
+        raise HTTPException(status_code=404, detail="Part not found")
+    return dict(row)
+@router.delete("/resources/parts/{pid}", dependencies=[_manager])
+async def delete_part(pid: int) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        res = await conn.execute("delete from parts where id = $1", pid)
+    if res == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Part not found")
+    return {"deleted": pid}
 
 
 @router.get("/review")

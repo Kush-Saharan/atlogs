@@ -9,6 +9,7 @@ import {
   Users,
   PanelLeft,
   Plug,
+  Wrench,
   Share2,
   SquareStack,
   type LucideIcon,
@@ -167,6 +168,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {SECONDARY.map((item) => (
             <SideNavLink key={item.to} item={item} collapsed={collapsed} />
           ))}
+          {user.role !== 'engineer' && (
+            <SideNavLink
+              item={{ to: '/resources', label: 'Resources', short: 'Resources', icon: Wrench }}
+              collapsed={collapsed}
+            />
+          )}
           {user.role === 'admin' && (
             <SideNavLink
               item={{ to: '/admin/users', label: 'Users', short: 'Users', icon: Users }}

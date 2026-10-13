@@ -70,11 +70,12 @@ Equipment → `unified_assets`; Resources → `technicians`, `parts`; Risk →
 | `terminology` | term, canonical, kind (component/symptom/action/abbrev) | Seeded (e.g. brg → bearing) |
 | `risk_assessments` | record_id FK, score, category, factors jsonb, method_version, insufficient_evidence | Insert-only; labelled *uncalibrated* |
 | `recommendations` | record_id FK, risk_id FK, priority, explanation jsonb, status (`pending`/`approved`/`modified`/`rejected`) | Status changes only via a decision |
-| `technicians`, `parts` | skills[], availability windows; qty on hand | Admin-managed (M-Q3) |
+| `asset_criticality` | (concept, lower(value)) PK, level low/medium/high | Keyed by asset identifier, not `unified_id`, so it survives the per-ingest rebuild; no row = `unknown` |
+| `technicians`, `parts` | skills[], availability windows (jsonb); stock on hand | Manager/admin-entered, start empty (M-D8) |
 | `schedule_proposals` | recommendation_id FK, assignments jsonb, conflicts jsonb | Conflicts kept, priority not lowered |
 | `decision_audit` | recommendation_id FK, action, original jsonb, final jsonb, user_id, comment, created_at | **Append-only**: no update, no delete |
 
-`unified_assets` gets a `criticality` column with a default. A reviewed record
+Criticality is not a column on `unified_assets` (that table is rebuilt every ingest); `GET /api/assets` joins `asset_criticality` through `asset_identifiers`. A reviewed record
 enters the existing pipeline as a `source_records` row with
 `system = 'maintenance_logs'` so resolution, `edges` and `hybrid_search` work
 unchanged. Traceability chain: `decision_audit` → `recommendations` →

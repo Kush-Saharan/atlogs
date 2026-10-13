@@ -9,8 +9,10 @@ import type {
   MaintenanceLog,
   MaintenanceLogDetail,
   Overview,
+  Part,
   ReviewItem,
   SimilarCases,
+  Technician,
   WorkflowEvent,
 } from './types'
 
@@ -83,6 +85,20 @@ export const api = {
     sendJSON<User>('POST', '/api/admin/users', body),
   updateUser: (id: number, body: { role?: string; active?: boolean }) =>
     sendJSON<User>('PATCH', `/api/admin/users/${id}`, body),
+  setCriticality: (unifiedId: string, level: string) =>
+    sendJSON<{ criticality: string }>('PUT', `/api/assets/${encodeURIComponent(unifiedId)}/criticality`, { level }),
+  technicians: (signal?: AbortSignal) => getJSON<Technician[]>('/api/resources/technicians', signal),
+  saveTechnician: (body: Omit<Technician, 'id'>, id?: number) =>
+    id === undefined
+      ? sendJSON<Technician>('POST', '/api/resources/technicians', body)
+      : sendJSON<Technician>('PUT', `/api/resources/technicians/${id}`, body),
+  deleteTechnician: (id: number) => sendJSON<unknown>('DELETE', `/api/resources/technicians/${id}`),
+  parts: (signal?: AbortSignal) => getJSON<Part[]>('/api/resources/parts', signal),
+  savePart: (body: Omit<Part, 'id'>, id?: number) =>
+    id === undefined
+      ? sendJSON<Part>('POST', '/api/resources/parts', body)
+      : sendJSON<Part>('PUT', `/api/resources/parts/${id}`, body),
+  deletePart: (id: number) => sendJSON<unknown>('DELETE', `/api/resources/parts/${id}`),
   logs: (signal?: AbortSignal) => getJSON<MaintenanceLog[]>('/api/logs', signal),
   log: (id: number, signal?: AbortSignal) =>
     getJSON<MaintenanceLogDetail>(`/api/logs/${id}`, signal),

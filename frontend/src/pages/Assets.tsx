@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/api'
 import { useAsync } from '@/lib/useAsync'
+import { useAuth } from '@/lib/session'
 import type { AssetSummary } from '@/lib/types'
 
 export function Assets() {
@@ -77,6 +78,18 @@ export function Assets() {
 }
 
 function AssetRow({ asset }: { asset: AssetSummary }) {
+  const { user } = useAuth()
+  const [level, setLevel] = useState(asset.criticality)
+  const [err, setErr] = useState(false)
+  async function change(next: string) {
+    setErr(false)
+    try {
+      await api.setCriticality(asset.unified_id, next)
+      setLevel(next)
+    } catch {
+      setErr(true)
+    }
+  }
   return (
     <div className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
@@ -88,7 +101,17 @@ function AssetRow({ asset }: { asset: AssetSummary }) {
         </div>
         <p className="font-mono text-xs text-muted-foreground">{asset.unified_id}</p>
       </div>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {user.role !== 'engineer' ? (
+          <select aria-label={`Criticality for ${asset.unified_id}`} value={level}
+            onChange={(e) => change(e.target.value)}
+            className="h-8 rounded-lg border border-border bg-card px-2 text-xs">
+            {['unknown', 'low', 'medium', 'high'].map((l) => <option key={l}>{l}</option>)}
+          </select>
+        ) : (
+          <Badge variant="neutral">criticality: {level}</Badge>
+        )}
+        {err && <span role="alert" className="text-xs text-critical">Could not save</span>}
         {asset.identifiers.length > 0 ? (
           asset.identifiers.map((i, idx) => (
             <Badge
