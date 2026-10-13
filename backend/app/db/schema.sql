@@ -325,3 +325,20 @@ create table if not exists parts (
     stock      integer not null default 0 check (stock >= 0),
     created_at timestamptz not null default now()
 );
+-- ---------------------------------------------------------------------------
+-- Risk assessments (M.9) — append-only; `input_refs` lists the log ids / criticality used.
+-- ---------------------------------------------------------------------------
+create table if not exists risk_assessments (
+    id                    bigserial primary key,
+    log_id                bigint not null references maintenance_logs(id),
+    score                 numeric not null,
+    category              text not null,
+    insufficient_evidence boolean not null,
+    method_version        text not null,
+    factors               jsonb not null,
+    features              jsonb not null,
+    input_refs            jsonb not null,
+    created_by            bigint references users(id),
+    created_at            timestamptz not null default now()
+);
+create index if not exists risk_assessments_log_idx on risk_assessments (log_id, created_at desc);

@@ -21,6 +21,7 @@ from app.engine.graph.store import GraphStore
 from app.engine.resolution import SourceRecord
 from app.knowledge.terminology import key as term_key
 from app.services import auth, connectors, logs, pipeline
+from app.services import risk as risk_service
 from app.services.document_ingest import (
     _clean_system_name,
     ingest_documents_events,
@@ -277,6 +278,13 @@ async def similar_to_record(
     }, k)
 
 
+@router.post("/records/{log_id}/risk")
+async def assess_record_risk(log_id: int, user: dict = Depends(auth.require_role())) -> dict[str, Any]:
+    """Score the log with the uncalibrated baseline and store the assessment."""
+    return await risk_service.assess_log(log_id, user["uid"])
+@router.get("/records/{log_id}/risk")
+async def get_record_risk(log_id: int) -> dict[str, Any] | None:
+    return await risk_service.latest(log_id)
 class SimilarRequest(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
     equipment: str | None = None

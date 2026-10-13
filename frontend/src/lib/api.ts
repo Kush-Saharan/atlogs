@@ -8,6 +8,7 @@ import type {
   HistoryRun,
   MaintenanceLog,
   MaintenanceLogDetail,
+  RiskAssessment,
   Overview,
   Part,
   ReviewItem,
@@ -106,6 +107,9 @@ export const api = {
     sendJSON<MaintenanceLogDetail>('PUT', `/api/records/${id}/review`, { fields }),
   similarCases: (id: number, signal?: AbortSignal) =>
     getJSON<SimilarCases>(`/api/records/${id}/similar`, signal),
+  riskAssessment: (id: number, signal?: AbortSignal) =>
+    getJSON<RiskAssessment | null>(`/api/records/${id}/risk`, signal),
+  assessRisk: (id: number) => sendJSON<RiskAssessment>('POST', `/api/records/${id}/risk`),
   overview: (signal?: AbortSignal) => getJSON<Overview>('/api/overview', signal),
   graph: (asset?: string, signal?: AbortSignal) =>
     getJSON<GraphData>(

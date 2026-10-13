@@ -346,3 +346,21 @@ export interface SimilarCases {
   matches: SimilarCase[]
   reason?: string
 }
+
+export interface RiskFactor {
+  name: string
+  input: number | string | null
+  normalised: number | null
+  weight: number
+  contribution: number
+}
+export interface RiskAssessment {
+  id: number
+  score: number
+  category: 'low' | 'medium' | 'high'
+  factors: RiskFactor[]
+  insufficient_evidence: boolean
+  insufficient_reasons?: string[]
+  method_version: string
+  created_at: string
+}

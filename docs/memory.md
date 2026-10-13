@@ -68,7 +68,7 @@ Equipment → `unified_assets`; Resources → `technicians`, `parts`; Risk →
 | `maintenance_logs` | sha256 unique, filename, original_text, submitted_by, status (`received`/`extracted`/`reviewed`/`error`), error | `original_text` never modified |
 | `maintenance_records` | log_id FK unique, `extracted` jsonb (value, span, confidence, needs_review per field), `reviewed` jsonb, reviewed_by, reviewed_at, unified_id | Reviewed values stored **beside** extracted, never over them |
 | `terminology` | term, canonical, kind (component/symptom/action/abbrev) | Seeded (e.g. brg → bearing) |
-| `risk_assessments` | record_id FK, score, category, factors jsonb, method_version, insufficient_evidence | Insert-only; labelled *uncalibrated* |
+| `risk_assessments` | log_id FK, score, category, factors/features/input_refs jsonb, method_version, insufficient_evidence, created_by | Insert-only; labelled *uncalibrated*; `input_refs` lists the log ids and criticality used |
 | `recommendations` | record_id FK, risk_id FK, priority, explanation jsonb, status (`pending`/`approved`/`modified`/`rejected`) | Status changes only via a decision |
 | `asset_criticality` | (concept, lower(value)) PK, level low/medium/high | Keyed by asset identifier, not `unified_id`, so it survives the per-ingest rebuild; no row = `unknown` |
 | `technicians`, `parts` | skills[], availability windows (jsonb); stock on hand | Manager/admin-entered, start empty (M-D8) |
