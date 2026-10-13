@@ -201,6 +201,21 @@ async def ingest_records(
             yield {"step": "complete", "message": "Nothing to resolve", "summary": _empty_summary()}
             return
 
+        # Reviewed maintenance logs: the projection reads the CURRENT reviewed values
+        # from maintenance_records (raw_json is never rewritten after first approval).
+        from app.services.logs import projection_raw
+
+        def _j(v: Any) -> Any:
+            return json.loads(v) if isinstance(v, str) else v
+
+        reviewed_logs = {
+            r["log_id"]: (_j(r["extracted"]), _j(r["reviewed"]))
+            for r in await conn.fetch(
+                "select log_id, extracted, reviewed from maintenance_records "
+                "where reviewed is not null"
+            )
+        }
+
         raw_by_system: dict[str, list[dict[str, Any]]] = {}
         raw_by_record: dict[str, dict[str, Any]] = {}
         db_id: dict[str, int] = {}
@@ -209,6 +224,8 @@ async def ingest_records(
             raw = r["raw_json"]
             if isinstance(raw, str):
                 raw = json.loads(raw)
+            if r["system"] == "maintenance_logs" and raw.get("log_id") in reviewed_logs:
+                raw = projection_raw(raw["log_id"], *reviewed_logs[raw["log_id"]])
             raw_by_system.setdefault(r["system"], []).append(raw)
             raw_by_record[r["record_id"]] = raw
             db_id[r["record_id"]] = r["id"]

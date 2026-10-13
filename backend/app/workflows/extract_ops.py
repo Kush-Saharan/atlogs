@@ -34,10 +34,13 @@ from app.config import get_settings
 from app.engine.graph.model import (
     GraphLayer,
     RelationType,
+    action_node,
     asset_node,
+    component_node,
     failure_node,
     rule_node,
     sensor_node,
+    symptom_node,
     work_order_node,
 )
 from app.services.llm import get_extract_model, resilient
@@ -213,9 +216,13 @@ async def _load_or_extract(
     """Cached extraction for a record; robust deterministic fallbacks so a flaky
     LLM response never blocks ingest. The anomaly signal is rule-first (see
     ``_anomaly_signal``) with the LLM's judgment only as a tie-breaker."""
-    cached = await conn.fetchval(
-        "select payload from operational_extractions where record_id = $1", record_id
-    )
+    # A pre-filled `_ext` is authoritative and may change (reviewed log corrections),
+    # so it bypasses the cache; only the LLM path below is cached.
+    cached = None
+    if not isinstance(raw.get("_ext"), dict):
+        cached = await conn.fetchval(
+            "select payload from operational_extractions where record_id = $1", record_id
+        )
     if cached is not None:
         return json.loads(cached) if isinstance(cached, str) else cached
 
@@ -284,9 +291,9 @@ async def rebuild_operational_edges(
     # Rebuild is authoritative for the operational layer.
     await conn.execute("delete from edges where layer = 'operational'")
 
-    if not settings.embeddings_enabled:
-        # No NVIDIA access (offline/test) — nothing to extract.
-        return counts
+    # No NVIDIA access (offline/test): only the LLM path is skipped. Records with a
+    # pre-filled `_ext` (documents, reviewed logs) still produce edges below.
+    offline = not settings.embeddings_enabled
 
     seen: set[tuple[str, str, str]] = set()
 
@@ -316,6 +323,8 @@ async def rebuild_operational_edges(
             continue
         uid = member_to_cluster.get(rid)
         if uid is None:
+            continue
+        if offline and not isinstance(raw.get("_ext"), dict):
             continue
         ext = await _load_or_extract(conn, rid, rec.semantic_text, raw)
         asset = asset_node(uid)
@@ -355,6 +364,22 @@ async def rebuild_operational_edges(
                 await add_edge(asset, RelationType.SUBJECT_TO, rule_node(rid_val), base_meta)
                 counts["rules"] += 1
 
+        if system == "maintenance_logs":
+            # Reviewed maintenance case: asset -> component -> symptom -> action.
+            # A missing link is skipped; the chain attaches to the nearest earlier node.
+            comp, sym, act = (str(raw.get(k) or "").strip() for k in ("component", "symptom", "action"))
+            case_meta = {"citation": rid, "log_id": raw.get("log_id"), **dates}
+            parent = asset
+            if comp:
+                parent = component_node(uid, comp)
+                await add_edge(asset, RelationType.HAS_COMPONENT, parent, {**case_meta, "name": comp})
+            if sym:
+                node = symptom_node(sym)
+                await add_edge(parent, RelationType.EXHIBITED, node, {**case_meta, "name": sym})
+                parent = node
+            if act:
+                await add_edge(parent, RelationType.ADDRESSED_BY, action_node(act), {**case_meta, "name": act})
+
         for sensor in ext.get("sensors", []) or []:
             if sensor and sensor.strip():
                 await add_edge(
@@ -362,6 +387,9 @@ async def rebuild_operational_edges(
                     {"citation": rid, "name": sensor},
                 )
                 counts["sensors"] += 1
+
+    if offline:
+        return counts
 
     # Dependency edges (asset -> upstream asset) for multi-hop RCA. Any record —
     # of any connector kind — may declare a dependency; resolve the reference to

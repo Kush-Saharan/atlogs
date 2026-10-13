@@ -622,7 +622,11 @@ def _node_type(node_id: str) -> tuple[str, str]:
         "rule": "rule",
         "wo": "work_order",
         "sensor": "signal",
+        "sym": "symptom",
+        "act": "action",
     }
+    if prefix == "comp":  # comp:<unified_id>:<name>
+        return "component", rest.partition(":")[2] or rest
     if prefix in mapping:
         return mapping[prefix], rest or node_id
     # identifier concepts (serial_number:..., mac_address:..., uuid:...)

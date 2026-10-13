@@ -46,6 +46,9 @@ export type NodeType =
   | 'work_order'
   | 'signal'
   | 'identifier'
+  | 'component'
+  | 'symptom'
+  | 'action'
   | 'concept'
 
 export interface GraphNode {

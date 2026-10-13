@@ -11,6 +11,9 @@ export const NODE_COLORS: Record<NodeType, string> = {
   cause: '#c06a2b', // amber — root causes
   work_order: '#6b7280', // slate — work orders
   identifier: '#7a5cd0', // violet — identifiers
+  component: '#3b82c4', // blue — components of an asset
+  symptom: '#d4a017', // yellow — observed symptoms
+  action: '#3f9d4f', // green — maintenance actions
   concept: '#8a8f98', // gray — other
 } as unknown as Record<NodeType, string>
 
@@ -23,6 +26,9 @@ export const NODE_TYPE_LABEL: Record<NodeType, string> = {
   work_order: 'Work order',
   signal: 'Signal',
   identifier: 'Identifier',
+  component: 'Component',
+  symptom: 'Symptom',
+  action: 'Action',
   concept: 'Concept',
 }
 

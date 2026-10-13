@@ -149,9 +149,9 @@ re-resolve; one source never clobbers another).
 |-------|-----------|--------|
 | Physical | `HAS_SOURCE_RECORD`, `HAS_SERIAL`, `HAS_MAC`, `HAS_IDENTIFIER`, `LOCATED_IN` | Existing |
 | Operational | `HAS_FAILURE`, `HAS_WORK_ORDER`, `HAS_SENSOR`, `DEPENDS_ON`, `SUBJECT_TO`, `MAY_BE_CAUSED_BY`, `VIOLATES` | Existing |
-| Maintenance case | equipment → component → symptom → action → case (spec M3) | Planned M.6; relation names set in that task |
+| Maintenance case | `HAS_COMPONENT` (asset → component), `EXHIBITED` (component → symptom), `ADDRESSED_BY` (symptom → action); the case itself is the `HAS_WORK_ORDER` / `HAS_FAILURE` edge and `sr:` record | M.6 |
 
-Node IDs are prefixed (`asset:`, `sr:`, `fm:`, `cf:`, `rule:`, `wo:`, `sensor:`).
+Node IDs are prefixed (`asset:`, `sr:`, `fm:`, `cf:`, `rule:`, `wo:`, `sensor:`, `comp:<asset>:<name>`, `sym:`, `act:`).
 Traversal uses recursive CTEs with cycle guard and depth limit.
 
 ---

@@ -149,8 +149,36 @@ async def get_log(log_id: int) -> dict[str, Any]:
     return out
 
 
+def projection_raw(log_id: int, extracted: dict[str, Any], reviewed: dict[str, Any] | None) -> dict[str, Any]:
+    """The pipeline record for a reviewed log (M-D6). Reviewed values win; a field the
+    reviewer did not send falls back to the extracted value. Equipment goes in as
+    `asset_tag` so it matches existing assets (a field named `equipment` would be read
+    as a serial number by schema discovery)."""
+    reviewed = reviewed or {}
+    v: dict[str, str] = {}
+    for k in _LLM_FIELDS:
+        f = reviewed[k] if k in reviewed else (extracted.get("fields") or {}).get(k)
+        v[k] = str((f or {}).get("value") or "").strip()
+    raw = {
+        "record_id": str(log_id), "log_id": log_id, "asset_tag": v["equipment"],
+        "component": v["component"], "symptom": v["symptom"], "action": v["action"],
+        "outcome": v["outcome"], "date": v["date"],
+        "description": " ".join(x for x in (v["component"], v["symptom"], v["action"], v["outcome"]) if x),
+        # A completed action is a work order; a bare symptom is a failure report.
+        "_event_kind": "work_order" if v["action"] else "failure",
+        "_ext": {
+            "is_anomaly": bool(v["symptom"]), "component": v["component"],
+            "observation": v["symptom"] or v["action"], "symptoms": [v["symptom"]] if v["symptom"] else [],
+            "sensors": [], "status": v["outcome"].lower(), "confidence": 1.0,  # human-reviewed
+        },
+    }
+    return {k: x for k, x in raw.items() if x != ""}
+
+
 async def review(log_id: int, fields: dict[str, str | None], user_id: int) -> dict[str, Any]:
-    """Save reviewed values beside `extracted` (never over it); the log text is untouched."""
+    """Save reviewed values beside `extracted` (never over it); the log text is untouched.
+    The FIRST review also enters the record into the pipeline (M-D6); later corrections
+    only update `reviewed`, and the next rebuild reads them from there."""
     bad = set(fields) - set(_LLM_FIELDS)
     if bad:
         raise HTTPException(422, f"Unknown field(s): {', '.join(sorted(bad))}")
@@ -162,12 +190,26 @@ async def review(log_id: int, fields: dict[str, str | None], user_id: int) -> di
         clean[k] = {"value": v or None}
     async with get_pool().acquire() as conn:
         async with conn.transaction():
-            ok = await conn.fetchval(
+            rec = await conn.fetchrow(
                 "update maintenance_records set reviewed = $2, reviewed_by = $3,"
-                " reviewed_at = now() where log_id = $1 returning id",
+                " reviewed_at = now() where log_id = $1 returning extracted",
                 log_id, json.dumps(clean), user_id)
-            if ok is None:
+            if rec is None:
                 raise HTTPException(404, "No extracted record for this log")
             await conn.execute(
                 "update maintenance_logs set status = 'reviewed' where id = $1", log_id)
+            first = await conn.fetchval(
+                "insert into source_records (system, record_id, raw_json)"
+                " values ('maintenance_logs', $1, $2::jsonb)"
+                " on conflict (system, record_id) do nothing returning id",
+                f"maintenance_logs:{log_id}",
+                json.dumps(projection_raw(log_id, json.loads(rec["extracted"]), clean)))
+    if first is not None:
+        from app.services import pipeline  # lazy: pipeline imports this module
+        try:
+            async for _ in pipeline.ingest_records({}):
+                pass
+        except Exception as exc:  # noqa: BLE001 - the review is saved; the next ingest heals the graph
+            raise HTTPException(
+                502, f"Review saved, but the knowledge graph update failed: {exc}") from exc
     return await get_log(log_id)

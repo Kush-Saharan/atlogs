@@ -34,6 +34,10 @@ class RelationType(str, Enum):
     HAS_FAILURE = "HAS_FAILURE"
     MAY_BE_CAUSED_BY = "MAY_BE_CAUSED_BY"
     VIOLATES = "VIOLATES"
+    # maintenance case (from reviewed maintenance logs): equipment -> component -> symptom -> action
+    HAS_COMPONENT = "HAS_COMPONENT"
+    EXHIBITED = "EXHIBITED"
+    ADDRESSED_BY = "ADDRESSED_BY"
 
 
 class Edge(BaseModel):
@@ -79,3 +83,16 @@ def work_order_node(wo_id: str) -> str:
 
 def sensor_node(sensor_id: str) -> str:
     return f"sensor:{sensor_id}"
+
+
+# Components belong to one piece of equipment; symptoms and actions are shared by name.
+def component_node(unified_id: str, name: str) -> str:
+    return f"comp:{unified_id}:{_norm(name)}"
+
+
+def symptom_node(name: str) -> str:
+    return f"sym:{_norm(name)}"
+
+
+def action_node(name: str) -> str:
+    return f"act:{_norm(name)}"
