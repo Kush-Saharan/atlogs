@@ -36,6 +36,34 @@ function Highlighted({ text, fields }: { text: string; fields: Record<string, Ex
   return <p className="whitespace-pre-wrap text-sm leading-relaxed">{parts}</p>
 }
 
+/** Past cases like this log; every match links to its own log page. */
+function SimilarPanel({ logId }: { logId: number }) {
+  const { data, loading, error } = useAsync((s) => api.similarCases(logId, s), [logId])
+  return (
+    <Card className="p-4">
+      <h2 className="mb-2 text-sm font-semibold">Similar past cases</h2>
+      {loading && <Skeleton className="h-16 w-full" />}
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {data && data.matches.length === 0 && (
+        <p className="text-sm text-muted-foreground">{data.reason ?? 'No relevant match'}</p>
+      )}
+      {data && data.matches.length > 0 && (
+        <ul className="flex flex-col gap-3">
+          {data.matches.map((m) => (
+            <li key={m.log_id} className="text-sm">
+              <Link to={m.link} className="font-medium underline">Log #{m.log_id}</Link>
+              <span className="text-muted-foreground">
+                {' · '}{[m.equipment, m.component, m.date].filter(Boolean).join(' · ')}
+              </span>
+              <p>{[m.symptom, m.action, m.outcome].filter(Boolean).join(' → ') || m.snippet}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  )
+}
+
 export function LogReview() {
   const { id } = useParams()
   const { data, loading, error } = useAsync((s) => api.log(Number(id), s), [id])
@@ -125,6 +153,7 @@ function ReviewBody({ initial }: { initial: MaintenanceLogDetail }) {
               )}
             </Card>
           </div>
+          <SimilarPanel logId={logId} />
     </>
   )
 }

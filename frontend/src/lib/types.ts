@@ -313,3 +313,22 @@ export interface MaintenanceLogDetail extends MaintenanceLog {
     reviewed_at: string | null
   } | null
 }
+
+export interface SimilarCase {
+  log_id: number
+  link: string
+  snippet: string
+  score: number
+  similarity: number | null
+  fts_rank: number | null
+  equipment: string | null
+  component: string | null
+  symptom: string | null
+  action: string | null
+  outcome: string | null
+  date: string | null
+}
+export interface SimilarCases {
+  matches: SimilarCase[]
+  reason?: string
+}

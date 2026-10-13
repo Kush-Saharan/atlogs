@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from typing import Any
 
 import asyncpg
@@ -725,6 +726,115 @@ async def hybrid_search(
             )
         )
     return out
+
+
+# --- similar maintenance cases (M.7) ---------------------------------------
+# shortcut: uncalibrated cut-offs (no labelled history yet), tune once real logs exist.
+SIMILAR_MIN_FTS = 0.25      # Dice word overlap (0..1) a full-text hit must reach
+SIMILAR_MIN_VECTOR = 0.62   # cosine similarity a vector hit must reach (as in _related_assets)
+_NO_MATCH = {"matches": [], "reason": "no relevant match"}
+
+
+def _cur(field: str) -> str:
+    """Current value of a log field: reviewed if the reviewer sent it, else extracted."""
+    return (f"case when mr.reviewed ? '{field}' then mr.reviewed->'{field}'->>'value' "
+            f"else mr.extracted->'fields'->'{field}'->>'value' end as {field}")
+
+
+_CASES_SQL = (
+    "select sr.record_id, sr.semantic_text, sr.embedding, mr.log_id, left(ml.original_text, 240) as snippet, "
+    + ", ".join(_cur(f) for f in ("equipment", "component", "symptom", "action", "outcome", "date"))
+    + " from source_records sr"
+    " join maintenance_records mr on mr.log_id::text = sr.raw_json->>'log_id'"
+    " join maintenance_logs ml on ml.id = mr.log_id"
+    " where sr.system = 'maintenance_logs'"
+)
+
+
+def _case_filters(filters: dict[str, Any], args: list[Any]) -> str:
+    """SQL conditions on the `cases` subquery; values are appended to `args` as parameters."""
+    out = []
+    for key in ("equipment", "component"):
+        v = str(filters.get(key) or "").strip()
+        if v:
+            args.append(v)
+            out.append(f"position(lower(${len(args)}::text) in lower(coalesce(cases.{key}, ''))) > 0")
+    # ISO strings compare correctly as text; a non-ISO date never matches a date filter.
+    for key, op in (("date_from", ">="), ("date_to", "<=")):
+        v = str(filters.get(key) or "").strip()
+        if v:
+            args.append(v)
+            out.append(f"(cases.date ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}$' and cases.date {op} ${len(args)}::text)")
+    if filters.get("exclude_log_id") is not None:
+        args.append(int(filters["exclude_log_id"]))
+        out.append(f"cases.log_id <> ${len(args)}::bigint")
+    return "".join(f" and {c}" for c in out)
+
+
+async def similar_cases(
+    conn: asyncpg.Connection, text: str, filters: dict[str, Any] | None = None, k: int = 5
+) -> dict[str, Any]:
+    """Past maintenance cases most like `text`: full-text + pgvector fused with RRF.
+
+    pgvector is used only when embeddings are available; otherwise FTS alone.
+    Hits below the thresholds are dropped, so an unrelated query returns
+    {"matches": [], "reason": "no relevant match"} instead of a weak guess.
+    Filters: equipment, component, date_from, date_to (ISO), exclude_log_id.
+    """
+    text = (text or "").strip()
+    filters = filters or {}
+    # Stemmed lexemes of the query (ASCII word forms only).
+    lexemes = [w for w in await conn.fetchval(
+        "select tsvector_to_array(to_tsvector('english', $1))", text) if re.fullmatch(r"[a-z0-9]+", w)]
+    if not lexemes:
+        return dict(_NO_MATCH)
+
+    # Dice overlap of query and case lexemes (0..1): unlike ts_rank it is comparable across queries.
+    fargs: list[Any] = [lexemes]
+    ft_rows = await conn.fetch(
+        f"select cases.*, 2.0 * cardinality(ov) / (cardinality($1::text[]) + cardinality(cl)) as rank "
+        f"from ({_CASES_SQL}) cases, "
+        f"lateral (select tsvector_to_array(to_tsvector('english', coalesce(cases.semantic_text, ''))) as cl) a, "
+        f"lateral (select array(select unnest(cl) intersect select unnest($1::text[])) as ov) b "
+        f"where cardinality(ov) > 0{_case_filters(filters, fargs)} order by rank desc limit 20",
+        *fargs,
+    )
+    ft_rows = [r for r in ft_rows if r["rank"] >= SIMILAR_MIN_FTS]
+
+    vec_rows: list[Any] = []
+    if get_settings().embeddings_enabled:
+        try:
+            literal = _vector_literal(await asyncio.to_thread(get_embedding_client().embed_query, text))
+        except Exception:
+            literal = None  # embedding service down: FTS-only
+        if literal is not None:
+            vargs: list[Any] = [literal]
+            vec_rows = await conn.fetch(
+                f"select cases.*, 1 - (cases.embedding <=> $1::vector) as sim "
+                f"from ({_CASES_SQL}) cases where cases.embedding is not null"
+                f"{_case_filters(filters, vargs)} order by cases.embedding <=> $1::vector limit 20",
+                *vargs,
+            )
+            vec_rows = [r for r in vec_rows if r["sim"] >= SIMILAR_MIN_VECTOR]
+
+    by_log = {r["log_id"]: r for r in list(vec_rows) + list(ft_rows)}
+    fused = _rrf_fuse([str(r["log_id"]) for r in vec_rows], [str(r["log_id"]) for r in ft_rows])
+    if not fused:
+        return dict(_NO_MATCH)
+    fts = {r["log_id"]: float(r["rank"]) for r in ft_rows}
+    sim = {r["log_id"]: float(r["sim"]) for r in vec_rows}
+    matches = []
+    for key, score in sorted(fused.items(), key=lambda kv: kv[1], reverse=True)[:k]:
+        r = by_log[int(key)]
+        matches.append({
+            "log_id": r["log_id"], "citation": r["record_id"], "link": f"/logs/{r['log_id']}",
+            "score": round(score, 4),
+            "fts_rank": round(fts[r["log_id"]], 4) if r["log_id"] in fts else None,
+            "similarity": round(sim[r["log_id"]], 4) if r["log_id"] in sim else None,
+            "snippet": r["snippet"],
+            **{f: r[f] for f in ("equipment", "component", "symptom", "action", "outcome", "date")},
+        })
+    return {"matches": matches}
 
 
 async def most_referenced_asset(conn: asyncpg.Connection) -> str | None:

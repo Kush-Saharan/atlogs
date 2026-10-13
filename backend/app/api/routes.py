@@ -7,6 +7,7 @@ that streams real per-step status (ui-ux "wait UX" requirement).
 from __future__ import annotations
 
 import json
+from datetime import date
 from typing import Any
 
 from asyncpg.exceptions import UniqueViolationError
@@ -32,6 +33,7 @@ from app.workflows.retrieval import (
     asset_okf,
     get_workflow_run,
     list_workflow_runs,
+    similar_cases,
 )
 
 
@@ -250,6 +252,47 @@ async def review_record(
 ) -> dict[str, Any]:
     """The path id is the log id (one record per log). Managers decide, they do not edit fields."""
     return await logs.review(log_id, body.fields, user["uid"])
+
+
+async def _similar(text: str, filters: dict[str, Any], k: int) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        return await similar_cases(conn, text, filters, k)
+
+
+@router.get("/records/{log_id}/similar")
+async def similar_to_record(
+    log_id: int,
+    equipment: str | None = None,
+    component: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    k: int = Query(default=5, ge=1, le=20),
+) -> dict[str, Any]:
+    """Past cases like this log (the log itself excluded); each match links to its log."""
+    text = (await logs.get_log(log_id))["original_text"]  # 404 if unknown
+    return await _similar(text, {
+        "equipment": equipment, "component": component, "exclude_log_id": log_id,
+        "date_from": date_from and date_from.isoformat(), "date_to": date_to and date_to.isoformat(),
+    }, k)
+
+
+class SimilarRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=5000)
+    equipment: str | None = None
+    component: str | None = None
+    date_from: date | None = None
+    date_to: date | None = None
+    k: int = Field(default=5, ge=1, le=20)
+
+
+@router.post("/similar")
+async def similar(req: SimilarRequest) -> dict[str, Any]:
+    """Past cases like free text (e.g. a new issue before it is logged)."""
+    return await _similar(req.text, {
+        "equipment": req.equipment, "component": req.component,
+        "date_from": req.date_from and req.date_from.isoformat(),
+        "date_to": req.date_to and req.date_to.isoformat(),
+    }, req.k)
 
 
 @router.post("/discover")

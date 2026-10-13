@@ -10,6 +10,7 @@ import type {
   MaintenanceLogDetail,
   Overview,
   ReviewItem,
+  SimilarCases,
   WorkflowEvent,
 } from './types'
 
@@ -87,6 +88,8 @@ export const api = {
     getJSON<MaintenanceLogDetail>(`/api/logs/${id}`, signal),
   reviewLog: (id: number, fields: Record<string, string>) =>
     sendJSON<MaintenanceLogDetail>('PUT', `/api/records/${id}/review`, { fields }),
+  similarCases: (id: number, signal?: AbortSignal) =>
+    getJSON<SimilarCases>(`/api/records/${id}/similar`, signal),
   overview: (signal?: AbortSignal) => getJSON<Overview>('/api/overview', signal),
   graph: (asset?: string, signal?: AbortSignal) =>
     getJSON<GraphData>(
