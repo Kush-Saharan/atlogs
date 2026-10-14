@@ -14,6 +14,8 @@ import type {
   ReviewItem,
   SimilarCases,
   Technician,
+  ComponentDefault,
+  ScheduleProposal,
   WorkflowEvent,
 } from './types'
 
@@ -100,6 +102,13 @@ export const api = {
       ? sendJSON<Part>('POST', '/api/resources/parts', body)
       : sendJSON<Part>('PUT', `/api/resources/parts/${id}`, body),
   deletePart: (id: number) => sendJSON<unknown>('DELETE', `/api/resources/parts/${id}`),
+  scheduleDefaults: (signal?: AbortSignal) => getJSON<ComponentDefault[]>('/api/schedule/defaults', signal),
+  saveScheduleDefault: (component: string, body: Omit<ComponentDefault, 'component'>) =>
+    sendJSON<ComponentDefault>('PUT', `/api/schedule/defaults/${encodeURIComponent(component)}`, body),
+  deleteScheduleDefault: (component: string) =>
+    sendJSON<unknown>('DELETE', `/api/schedule/defaults/${encodeURIComponent(component)}`),
+  scheduleProposal: (signal?: AbortSignal) => getJSON<ScheduleProposal | null>('/api/schedule/proposal', signal),
+  proposeSchedule: (days: number) => sendJSON<ScheduleProposal>('POST', `/api/schedule/propose?days=${days}`),
   logs: (signal?: AbortSignal) => getJSON<MaintenanceLog[]>('/api/logs', signal),
   log: (id: number, signal?: AbortSignal) =>
     getJSON<MaintenanceLogDetail>(`/api/logs/${id}`, signal),

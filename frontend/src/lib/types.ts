@@ -95,6 +95,28 @@ export interface Technician {
   availability: { start: string; end: string }[]
 }
 
+export interface ComponentDefault {
+  component: string
+  skill: string
+  duration_min: number
+  parts: string[]
+}
+
+export interface ScheduleProposal {
+  id: number
+  horizon_start: string
+  horizon_end: string
+  created_at: string
+  assignments: {
+    recommendation_id: number; log_id: number; priority: string; technician: string
+    start: string; end: string; parts: string[]
+  }[]
+  conflicts: {
+    recommendation_id: number; log_id: number; priority: string
+    reason: 'skill' | 'availability' | 'part'; detail: string
+  }[]
+}
+
 export interface Part {
   id: number
   name: string

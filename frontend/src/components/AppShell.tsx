@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   Boxes,
+  CalendarClock,
   ClipboardCheck,
   FileText,
   Home,
@@ -168,6 +169,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {SECONDARY.map((item) => (
             <SideNavLink key={item.to} item={item} collapsed={collapsed} />
           ))}
+          {user.role !== 'engineer' && (
+            <SideNavLink
+              item={{ to: '/schedule', label: 'Schedule', short: 'Schedule', icon: CalendarClock }}
+              collapsed={collapsed}
+            />
+          )}
           {user.role !== 'engineer' && (
             <SideNavLink
               item={{ to: '/resources', label: 'Resources', short: 'Resources', icon: Wrench }}

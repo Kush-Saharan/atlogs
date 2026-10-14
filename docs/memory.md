@@ -72,7 +72,8 @@ Equipment → `unified_assets`; Resources → `technicians`, `parts`; Risk →
 | `recommendations` | record_id FK, risk_id FK, priority, explanation jsonb, status (`pending`/`approved`/`modified`/`rejected`) | Status changes only via a decision |
 | `asset_criticality` | (concept, lower(value)) PK, level low/medium/high | Keyed by asset identifier, not `unified_id`, so it survives the per-ingest rebuild; no row = `unknown` |
 | `technicians`, `parts` | skills[], availability windows (jsonb); stock on hand | Manager/admin-entered, start empty (M-D8) |
-| `schedule_proposals` | recommendation_id FK, assignments jsonb, conflicts jsonb | Conflicts kept, priority not lowered |
+| `component_defaults` | component PK, skill, duration_min, parts[] | Manager-editable; seeded with 6 components |
+| `schedule_proposals` | horizon_start/end, assignments jsonb, conflicts jsonb, created_by | One row per run over all pending recommendations; conflicts kept, priority not lowered |
 | `decision_audit` | recommendation_id FK, action, original jsonb, final jsonb, user_id, comment, created_at | **Append-only**: no update, no delete |
 
 Criticality is not a column on `unified_assets` (that table is rebuilt every ingest); `GET /api/assets` joins `asset_criticality` through `asset_identifiers`. A reviewed record

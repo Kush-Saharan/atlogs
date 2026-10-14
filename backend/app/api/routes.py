@@ -23,6 +23,7 @@ from app.knowledge.terminology import key as term_key
 from app.services import auth, connectors, logs, pipeline
 from app.services import priority as priority_service
 from app.services import risk as risk_service
+from app.services import schedule as schedule_service
 from app.services.document_ingest import (
     _clean_system_name,
     ingest_documents_events,
@@ -1019,3 +1020,40 @@ async def remove_connector(connector_id: int) -> dict[str, Any]:
     async for _ in connectors.delete_connector(connector_id):
         pass
     return {"ok": True}
+
+
+class DefaultIn(BaseModel):
+    skill: str = Field(min_length=1)
+    duration_min: int = Field(gt=0, le=10080)
+    parts: list[str] = Field(default_factory=list)
+@router.get("/schedule/defaults", dependencies=[_manager])
+async def list_defaults() -> list[dict[str, Any]]:
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch("select component, skill, duration_min, parts from component_defaults order by component")
+    return [dict(r) for r in rows]
+@router.put("/schedule/defaults/{component}", dependencies=[_manager])
+async def save_default(component: str, req: DefaultIn) -> dict[str, Any]:
+    comp = component.strip().lower()
+    if not comp:
+        raise HTTPException(status_code=422, detail="Component is required")
+    parts = sorted({p.strip().lower() for p in req.parts if p.strip()})
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "insert into component_defaults (component, skill, duration_min, parts) values ($1,$2,$3,$4) "
+            "on conflict (component) do update set skill = $2, duration_min = $3, parts = $4 "
+            "returning component, skill, duration_min, parts", comp, req.skill.strip().lower(), req.duration_min, parts)
+    return dict(row)
+@router.delete("/schedule/defaults/{component}", dependencies=[_manager])
+async def delete_default(component: str) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        res = await conn.execute("delete from component_defaults where component = $1", component.strip().lower())
+    if res == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Default not found")
+    return {"deleted": component}
+@router.post("/schedule/propose", dependencies=[_manager])
+async def propose_schedule(days: int = Query(default=14, ge=1, le=60), user: dict = Depends(auth.require_role())) -> dict[str, Any]:
+    """Greedy proposal for all pending recommendations. A human confirms it (M.12); nothing is booked."""
+    return await schedule_service.propose_schedule(user["uid"], days)
+@router.get("/schedule/proposal", dependencies=[_manager])
+async def latest_proposal() -> dict[str, Any] | None:
+    return await schedule_service.latest()

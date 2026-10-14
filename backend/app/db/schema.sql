@@ -357,3 +357,30 @@ create table if not exists recommendations (
     created_at     timestamptz not null default now()
 );
 create index if not exists recommendations_record_idx on recommendations (record_id, created_at desc);
+-- ---------------------------------------------------------------------------
+-- Scheduling (M.11) — component -> skill/duration/parts defaults (manager-editable) and proposals.
+-- A proposal is a run over all pending recommendations; it never changes part stock or priority.
+-- ---------------------------------------------------------------------------
+create table if not exists component_defaults (
+    component    text primary key,
+    skill        text not null,
+    duration_min integer not null check (duration_min > 0),
+    parts        text[] not null default '{}'
+);
+insert into component_defaults (component, skill, duration_min, parts) values
+    ('bearing', 'mechanical', 120, '{bearing}'),
+    ('seal', 'mechanical', 90, '{seal}'),
+    ('pump', 'mechanical', 180, '{}'),
+    ('gearbox', 'mechanical', 240, '{}'),
+    ('motor', 'electrical', 120, '{}'),
+    ('valve', 'instrumentation', 60, '{}')
+on conflict do nothing;
+create table if not exists schedule_proposals (
+    id            bigserial primary key,
+    horizon_start timestamp not null,
+    horizon_end   timestamp not null,
+    assignments   jsonb not null,
+    conflicts     jsonb not null,
+    created_by    bigint references users(id),
+    created_at    timestamptz not null default now()
+);

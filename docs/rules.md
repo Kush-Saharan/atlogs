@@ -158,7 +158,12 @@ Never use the reasoning tier for routing, classification or extraction.
   detected with the extractor's negation rule (`log_extract._negated`) and does **not** raise
   priority; the explanation says it was ignored. Points and cut-offs are guesses until
   compared with managers' decisions.
-- An unschedulable task is flagged as a conflict; its priority is **not** lowered.
+- An unschedulable task is flagged as a conflict (`skill`, `part` or `availability`); its priority is **not** lowered.
+  Scheduling (`engine/schedule.py`, pure, greedy) takes pending recommendations in priority order
+  (P1 first, then id), gives each the earliest slot of a free technician with the required skill, and
+  uses up one unit per listed part within the proposal only. Skill, duration and parts per component
+  come from the manager-editable `component_defaults` table; unknown components need skill `general`
+  for 60 min. A proposal books nothing and leaves part stock unchanged until a decision (M.12).
 - No LLM computes risk, priority, schedules or decisions.
 
 ### 4.2 Resolution confidence (existing)
