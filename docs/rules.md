@@ -135,13 +135,29 @@ Never use the reasoning tier for routing, classification or extraction.
 
 ## 4. Scoring & Confidence Rules
 
-### 4.1 Risk and priority *(planned, M-D5)*
+### 4.1 Risk and priority *(M-D5)*
 
 - Risk is a transparent weighted formula in Python; weights and
   `method_version` live in code and are stored with each assessment.
 - Every score shows its factors; missing data sets `insufficient_evidence`.
 - Risk scores are labelled ***uncalibrated*** in the API and UI until evaluated
   against labelled outcomes (spec §5).
+- **Priority policy** (`engine/priority.py`, `priority-v0`, uncalibrated): points are summed
+  and cut into P1-P4; every recommendation is stored `pending` with its factor list
+  (`factor`, `input`, `points`, `reason`).
+
+  | Factor | Points |
+  |--------|--------|
+  | Risk category (from the latest assessment) | low 0, medium 2, high 4 |
+  | Stated urgency: `urgent`/`urgently`, `immediate`/`immediately`, `shutdown`/`shut-down` | +3, once |
+  | Equipment criticality | unknown/low 0, medium 1, high 2 |
+  | Recurrence on the same component, 90 days | 0 → 0, 1 → 1, 2 or more → 2 |
+
+  Cut-offs: total ≥ 8 → **P1**, ≥ 5 → **P2**, ≥ 2 → **P3**, else **P4**.
+  An urgency word after a negator (`not urgent`, `no shutdown needed`) is
+  detected with the extractor's negation rule (`log_extract._negated`) and does **not** raise
+  priority; the explanation says it was ignored. Points and cut-offs are guesses until
+  compared with managers' decisions.
 - An unschedulable task is flagged as a conflict; its priority is **not** lowered.
 - No LLM computes risk, priority, schedules or decisions.
 

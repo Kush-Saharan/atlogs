@@ -342,3 +342,18 @@ create table if not exists risk_assessments (
     created_at            timestamptz not null default now()
 );
 create index if not exists risk_assessments_log_idx on risk_assessments (log_id, created_at desc);
+-- ---------------------------------------------------------------------------
+-- Recommendations (M.10) — priority proposals; status changes only via a decision (M.12).
+-- ---------------------------------------------------------------------------
+create table if not exists recommendations (
+    id             bigserial primary key,
+    record_id      bigint not null references maintenance_records(id),
+    risk_id        bigint references risk_assessments(id),
+    priority       text not null check (priority in ('P1','P2','P3','P4')),
+    explanation    jsonb not null,
+    method_version text not null,
+    status         text not null default 'pending' check (status in ('pending','approved','modified','rejected')),
+    created_by     bigint references users(id),
+    created_at     timestamptz not null default now()
+);
+create index if not exists recommendations_record_idx on recommendations (record_id, created_at desc);

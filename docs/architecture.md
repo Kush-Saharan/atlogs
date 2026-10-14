@@ -33,7 +33,7 @@ flowchart TB
     P --> G["Resolution + edges<br/>(existing)"]
     G --> S["Similar cases<br/>hybrid_search + filters (planned M.7)"]
     S --> RK["Risk baseline<br/>(planned M.9)"]
-    RK --> PR["Priority recommendation<br/>(planned M.10)"]
+    RK --> PR["Priority recommendation<br/>(M.10)"]
     PR --> SC["Schedule proposal<br/>(planned M.11)"]
     SC --> D["Dashboard + notifications<br/>(planned M.13)"]
     D --> H["Manager decision<br/>(planned M.12)"]
