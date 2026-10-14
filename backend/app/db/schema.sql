@@ -384,3 +384,29 @@ create table if not exists schedule_proposals (
     created_by    bigint references users(id),
     created_at    timestamptz not null default now()
 );
+-- ---------------------------------------------------------------------------
+-- Decision audit (M.12) — append-only. `original` is the recommendation as proposed, `final` the
+-- outcome; a modify never overwrites the original. Written in the same transaction as the status change.
+-- ---------------------------------------------------------------------------
+create table if not exists decision_audit (
+    id                bigserial primary key,
+    recommendation_id bigint not null references recommendations(id),
+    record_id         bigint not null references maintenance_records(id),
+    action            text not null check (action in ('approved','modified','rejected')),
+    original          jsonb not null,
+    final             jsonb not null,
+    user_id           bigint not null references users(id),
+    comment           text,
+    created_at        timestamptz not null default now()
+);
+create index if not exists decision_audit_record_idx on decision_audit (record_id, created_at desc);
+create or replace function decision_audit_append_only() returns trigger language plpgsql as $$
+begin
+    raise exception 'decision_audit is append-only';
+end $$;
+drop trigger if exists decision_audit_no_change on decision_audit;
+create trigger decision_audit_no_change before update or delete on decision_audit
+    for each row execute function decision_audit_append_only();
+drop trigger if exists decision_audit_no_truncate on decision_audit;
+create trigger decision_audit_no_truncate before truncate on decision_audit
+    for each statement execute function decision_audit_append_only();

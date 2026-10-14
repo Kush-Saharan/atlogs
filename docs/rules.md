@@ -53,7 +53,7 @@
 - Human corrections go to `maintenance_records.reviewed`, with `reviewed_by` and
   `reviewed_at`. Never overwrite extracted values.
 
-### 2.3 Append-only audit *(planned)*
+### 2.3 Append-only audit
 
 - `decision_audit` rows are insert-only: no `UPDATE`, no `DELETE`.
 - A "modify" decision stores both `original` and `final`; the original

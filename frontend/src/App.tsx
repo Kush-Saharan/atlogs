@@ -16,6 +16,7 @@ import { Users } from '@/pages/Users'
 import { Logs } from '@/pages/Logs'
 import { LogReview } from '@/pages/LogReview'
 import { Resources } from '@/pages/Resources'
+import { Audit } from '@/pages/Audit'
 import { Schedule } from '@/pages/Schedule'
 import { RequireAuth } from '@/lib/auth'
 
@@ -40,6 +41,7 @@ function App() {
           <Route path="/logs/:id" element={<LogReview />} />
           <Route path="/review" element={<Review />} />
           <Route path="/schedule" element={<RequireAuth roles={['manager', 'admin']}><Schedule /></RequireAuth>} />
+          <Route path="/audit" element={<RequireAuth roles={['manager', 'admin']}><Audit /></RequireAuth>} />
           <Route path="/resources" element={<RequireAuth roles={['manager', 'admin']}><Resources /></RequireAuth>} />
           <Route path="/admin/users" element={<RequireAuth roles={['admin']}><Users /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />

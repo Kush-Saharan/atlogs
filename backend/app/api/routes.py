@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from asyncpg.exceptions import UniqueViolationError
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -21,6 +21,7 @@ from app.engine.graph.store import GraphStore
 from app.engine.resolution import SourceRecord
 from app.knowledge.terminology import key as term_key
 from app.services import auth, connectors, logs, pipeline
+from app.services import decision as decision_service
 from app.services import priority as priority_service
 from app.services import risk as risk_service
 from app.services import schedule as schedule_service
@@ -294,6 +295,20 @@ async def recommend_record_priority(log_id: int, user: dict = Depends(auth.requi
 @router.get("/records/{log_id}/priority")
 async def get_record_priority(log_id: int) -> dict[str, Any] | None:
     return await priority_service.latest(log_id)
+class DecisionIn(BaseModel):
+    action: Literal["approve", "modify", "reject"]
+    priority: Literal["P1", "P2", "P3", "P4"] | None = None
+    comment: str | None = Field(default=None, max_length=2000)
+@router.post("/recommendations/{rec_id}/decision", dependencies=[_manager])
+async def decide_recommendation(rec_id: int, req: DecisionIn, user: dict = Depends(auth.require_role())) -> dict[str, Any]:
+    """Manager approves, modifies (new priority) or rejects a pending recommendation; audited atomically."""
+    return await decision_service.decide(rec_id, user["uid"], req.action, req.priority, req.comment)
+@router.get("/records/{log_id}/decisions")
+async def record_decisions(log_id: int) -> list[dict[str, Any]]:
+    return await decision_service.history(log_id)
+@router.get("/audit", dependencies=[_manager])
+async def audit_trail() -> list[dict[str, Any]]:
+    return await decision_service.audit_log()
 class SimilarRequest(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
     equipment: str | None = None

@@ -386,3 +386,22 @@ export interface RiskAssessment {
   method_version: string
   created_at: string
 }
+
+export interface PriorityRecommendation {
+  id: number
+  priority: 'P1' | 'P2' | 'P3' | 'P4'
+  status: 'pending' | 'approved' | 'modified' | 'rejected'
+  method_version: string
+  explanation: { factor: string; input: unknown; points: number; reason: string }[]
+}
+export interface DecisionEntry {
+  id: number
+  recommendation_id: number
+  log_id: number
+  action: 'approved' | 'modified' | 'rejected'
+  original: { priority: string; status: string }
+  final: { priority: string; status: string }
+  user: string
+  comment: string | null
+  created_at: string
+}

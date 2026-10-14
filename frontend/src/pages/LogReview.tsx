@@ -123,6 +123,87 @@ function RiskPanel({ logId }: { logId: number }) {
     </Card>
   )
 }
+/** Priority recommendation: a manager approves, modifies or rejects it; history keeps original and final. */
+function DecisionPanel({ logId }: { logId: number }) {
+  const { user } = useAuth()
+  const rec = useAsync((s) => api.priorityRecommendation(logId, s), [logId])
+  const hist = useAsync((s) => api.decisions(logId, s), [logId])
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [priority, setPriority] = useState('P1')
+  const [comment, setComment] = useState('')
+  const r = rec.data
+  const canDecide = user.role !== 'engineer'
+  async function act(fn: () => Promise<unknown>) {
+    setBusy(true)
+    setErr(null)
+    try {
+      await fn()
+      setComment('')
+      rec.reload()
+      hist.reload()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Request failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const decide = (action: string) => act(() => api.decide(r!.id, { action, comment, ...(action === 'modify' ? { priority } : {}) }))
+  return (
+    <Card className="p-4">
+      <h2 className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold">
+        Priority recommendation <Badge>Uncalibrated</Badge>
+      </h2>
+      {rec.loading && <Skeleton className="h-16 w-full" />}
+      {(rec.error || err) && <p role="alert" className="text-sm text-destructive">{rec.error ?? err}</p>}
+      {r && (
+        <div className="flex flex-col gap-2 text-sm">
+          <p><span className="font-medium">{r.priority}</span> · <span className="capitalize">{r.status}</span>
+            <span className="text-muted-foreground"> · {r.method_version}</span></p>
+          <ul className="list-disc pl-5 text-muted-foreground">
+            {r.explanation.map((x) => <li key={x.factor}>{x.reason} ({x.points} pts)</li>)}
+          </ul>
+          {r.status === 'pending' && canDecide && (
+            <div className="flex flex-col gap-2">
+              <label className="flex flex-col gap-1 font-medium">Comment (required to modify or reject)
+                <textarea className="rounded-md border bg-background p-2 font-normal" rows={2} maxLength={2000}
+                  value={comment} onChange={(e) => setComment(e.target.value)} /></label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button disabled={busy} onClick={() => void decide('approve')}>Approve</Button>
+                <label className="flex items-center gap-1">Priority
+                  <select className="rounded-md border bg-background p-1" value={priority} onChange={(e) => setPriority(e.target.value)}>
+                    {['P1', 'P2', 'P3', 'P4'].map((p) => <option key={p}>{p}</option>)}
+                  </select></label>
+                <Button variant="outline" disabled={busy} onClick={() => void decide('modify')}>Modify</Button>
+                <Button variant="outline" disabled={busy} onClick={() => void decide('reject')}>Reject</Button>
+              </div>
+            </div>
+          )}
+          {r.status === 'pending' && !canDecide && <p className="text-muted-foreground">Awaiting a manager's decision.</p>}
+        </div>
+      )}
+      {!rec.loading && !r && <p className="text-sm text-muted-foreground">No recommendation yet.</p>}
+      {(!r || r.status !== 'pending') && (
+        <div className="mt-3"><Button variant="outline" disabled={busy} onClick={() => void act(() => api.recommendPriority(logId))}>
+          {busy ? 'Working…' : 'Recommend priority'}</Button></div>
+      )}
+      {hist.data && hist.data.length > 0 && (
+        <div className="mt-3 text-sm">
+          <h3 className="font-medium">Decision history</h3>
+          <ul className="flex flex-col gap-1">
+            {hist.data.map((d) => (
+              <li key={d.id}>
+                <span className="capitalize">{d.action}</span> by {d.user}: {d.original.priority} → {d.final.priority}
+                {d.comment && <span className="text-muted-foreground"> · “{d.comment}”</span>}
+                <span className="text-xs text-muted-foreground"> · {new Date(d.created_at).toLocaleString()}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
+  )
+}
 export function LogReview() {
   const { id } = useParams()
   const { data, loading, error } = useAsync((s) => api.log(Number(id), s), [id])
@@ -213,6 +294,7 @@ function ReviewBody({ initial }: { initial: MaintenanceLogDetail }) {
             </Card>
           </div>
           <RiskPanel logId={logId} />
+          <DecisionPanel logId={logId} />
           <SimilarPanel logId={logId} />
     </>
   )

@@ -9,6 +9,8 @@ import type {
   MaintenanceLog,
   MaintenanceLogDetail,
   RiskAssessment,
+  PriorityRecommendation,
+  DecisionEntry,
   Overview,
   Part,
   ReviewItem,
@@ -119,6 +121,13 @@ export const api = {
   riskAssessment: (id: number, signal?: AbortSignal) =>
     getJSON<RiskAssessment | null>(`/api/records/${id}/risk`, signal),
   assessRisk: (id: number) => sendJSON<RiskAssessment>('POST', `/api/records/${id}/risk`),
+  priorityRecommendation: (id: number, signal?: AbortSignal) =>
+    getJSON<PriorityRecommendation | null>(`/api/records/${id}/priority`, signal),
+  recommendPriority: (id: number) => sendJSON<PriorityRecommendation>('POST', `/api/records/${id}/priority`),
+  decide: (recId: number, body: { action: string; priority?: string; comment?: string }) =>
+    sendJSON<DecisionEntry>('POST', `/api/recommendations/${recId}/decision`, body),
+  decisions: (id: number, signal?: AbortSignal) => getJSON<DecisionEntry[]>(`/api/records/${id}/decisions`, signal),
+  audit: (signal?: AbortSignal) => getJSON<DecisionEntry[]>('/api/audit', signal),
   overview: (signal?: AbortSignal) => getJSON<Overview>('/api/overview', signal),
   graph: (asset?: string, signal?: AbortSignal) =>
     getJSON<GraphData>(

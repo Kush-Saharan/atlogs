@@ -14,6 +14,7 @@ import {
   Share2,
   SquareStack,
   type LucideIcon,
+  ScrollText,
 } from 'lucide-react'
 
 import { useAuth } from '@/lib/session'
@@ -172,6 +173,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {user.role !== 'engineer' && (
             <SideNavLink
               item={{ to: '/schedule', label: 'Schedule', short: 'Schedule', icon: CalendarClock }}
+              collapsed={collapsed}
+            />
+          )}
+          {user.role !== 'engineer' && (
+            <SideNavLink
+              item={{ to: '/audit', label: 'Audit', short: 'Audit', icon: ScrollText }}
               collapsed={collapsed}
             />
           )}
