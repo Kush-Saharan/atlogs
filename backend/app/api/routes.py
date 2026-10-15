@@ -22,6 +22,7 @@ from app.engine.resolution import SourceRecord
 from app.knowledge.terminology import key as term_key
 from app.services import auth, connectors, logs, pipeline
 from app.services import decision as decision_service
+from app.services import notifications as notification_service
 from app.services import priority as priority_service
 from app.services import risk as risk_service
 from app.services import schedule as schedule_service
@@ -753,6 +754,13 @@ async def compliance(rule: str = Query(..., description="rule id, e.g. RULE-LUBE
     return {"rule": rule, "at_risk_assets": at_risk}
 
 
+@router.get("/notifications")
+async def notifications(user: dict = Depends(auth.require_role())) -> dict[str, Any]:
+    """Role-specific in-app notifications (M-D7), derived on each request."""
+    items = await notification_service.for_role(user["role"])
+    return {"role": user["role"], "count": len(items), "items": items}
+
+
 @router.get("/overview")
 async def overview() -> dict[str, Any]:
     """Dashboard counts + recent evidence for the Home screen."""
@@ -780,7 +788,20 @@ async def overview() -> dict[str, Any]:
             limit 6
             """
         )
+        log_status = await notification_service.log_status_counts(conn)
+        high = await notification_service.high_priority(conn)
+        conflicts = await notification_service.unschedulable(conn)
+        decisions = await notification_service.recent_decisions(conn, 5)
     return {
+        "log_status": log_status,
+        "pending_review": log_status["extracted"],
+        "high_priority": len(high),
+        "conflicts": len(conflicts),
+        "recent_decisions": [
+            {"action": d["action"], "priority": json.loads(d["final"])["priority"], "log_id": d["log_id"],
+             "user": d["email"], "created_at": d["created_at"].isoformat()}
+            for d in decisions
+        ],
         "review_open": review_open or 0,
         "unified_assets": assets or 0,
         "assets_needing_review": needs_review or 0,

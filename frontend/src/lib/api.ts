@@ -11,6 +11,7 @@ import type {
   RiskAssessment,
   PriorityRecommendation,
   DecisionEntry,
+  Notifications,
   Overview,
   Part,
   ReviewItem,
@@ -128,6 +129,7 @@ export const api = {
     sendJSON<DecisionEntry>('POST', `/api/recommendations/${recId}/decision`, body),
   decisions: (id: number, signal?: AbortSignal) => getJSON<DecisionEntry[]>(`/api/records/${id}/decisions`, signal),
   audit: (signal?: AbortSignal) => getJSON<DecisionEntry[]>('/api/audit', signal),
+  notifications: (signal?: AbortSignal) => getJSON<Notifications>('/api/notifications', signal),
   overview: (signal?: AbortSignal) => getJSON<Overview>('/api/overview', signal),
   graph: (asset?: string, signal?: AbortSignal) =>
     getJSON<GraphData>(

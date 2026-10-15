@@ -19,7 +19,26 @@ export interface Connector {
   created_at: string | null
 }
 
+export interface Notification {
+  kind: 'pending_review' | 'duplicate' | 'high_priority' | 'unschedulable' | 'decision'
+  message: string
+  link: string
+  log_id: number | null
+  at: string | null
+}
+
+export interface Notifications {
+  role: string
+  count: number
+  items: Notification[]
+}
+
 export interface Overview {
+  log_status: Record<'received' | 'extracted' | 'reviewed' | 'error', number>
+  pending_review: number
+  high_priority: number
+  conflicts: number
+  recent_decisions: { action: string; priority: string; log_id: number; user: string; created_at: string }[]
   review_open: number
   unified_assets: number
   assets_needing_review: number

@@ -31,6 +31,7 @@ export function Home() {
   const graph = useAsync((s) => api.graph(undefined, s))
   const [selected, setSelected] = useState<GraphNode | null>(null)
 
+  const notes = useAsync((sig) => api.notifications(sig))
   const o = overview.data
   const hasData = (o?.source_records ?? 0) > 0
 
@@ -65,6 +66,59 @@ export function Home() {
             value={o?.source_records ?? 0}
             label="source records indexed"
           />
+        </div>
+      </section>
+
+      {/* Maintenance logs */}
+      <section className="mb-10">
+        <h2 className="mb-3 text-sm font-semibold">Maintenance logs</h2>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricCard loading={overview.loading} value={o?.pending_review ?? 0} label="pending review" />
+          <MetricCard loading={overview.loading} value={o?.high_priority ?? 0} label="P1/P2 awaiting decision" />
+          <MetricCard loading={overview.loading} value={o?.conflicts ?? 0} label="unschedulable conflicts" />
+          <MetricCard loading={overview.loading} value={o?.log_status.error ?? 0} label="logs in error" />
+        </div>
+        <p className="mt-3 text-sm text-muted-foreground">
+          Log status:{' '}
+          {o
+            ? (['received', 'extracted', 'reviewed', 'error'] as const)
+                .map((k) => `${o.log_status[k]} ${k}`)
+                .join(' · ')
+            : '…'}
+        </p>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <Card className="gap-2 p-5">
+            <h3 className="text-sm font-semibold">Notifications</h3>
+            {notes.data && notes.data.items.length > 0 ? (
+              <ul className="space-y-1.5 text-sm">
+                {notes.data.items.slice(0, 8).map((n, i) => (
+                  <li key={`${n.kind}-${n.log_id}-${i}`}>
+                    <Link to={n.link} className="hover:text-primary hover:underline">
+                      {n.message}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">Nothing needs your attention.</p>
+            )}
+          </Card>
+          <Card className="gap-2 p-5">
+            <h3 className="text-sm font-semibold">Recent decisions</h3>
+            {o && o.recent_decisions.length > 0 ? (
+              <ul className="space-y-1.5 text-sm">
+                {o.recent_decisions.map((d, i) => (
+                  <li key={i}>
+                    <Link to={`/logs/${d.log_id}`} className="hover:text-primary hover:underline">
+                      {d.user} {d.action} log #{d.log_id} ({d.priority})
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No decisions yet.</p>
+            )}
+          </Card>
         </div>
       </section>
 

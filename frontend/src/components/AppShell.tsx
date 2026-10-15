@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import {
+  Bell,
   Boxes,
   CalendarClock,
   ClipboardCheck,
@@ -17,6 +18,7 @@ import {
   ScrollText,
 } from 'lucide-react'
 
+import { api } from '@/lib/api'
 import { useAuth } from '@/lib/session'
 import { cn } from '@/lib/utils'
 import { ShaderBackground } from '@/components/ShaderBackground'
@@ -115,6 +117,35 @@ function BottomTab({ item }: { item: NavItem }) {
   )
 }
 
+function NotificationBadge() {
+  const { pathname } = useLocation()
+  const [count, setCount] = useState(0)
+  // Refetch on navigation so the count follows reviews and decisions.
+  useEffect(() => {
+    const c = new AbortController()
+    api.notifications(c.signal).then((n) => setCount(n.count), () => {})
+    return () => c.abort()
+  }, [pathname])
+  return (
+    <Link
+      to="/"
+      aria-label={`Notifications: ${count}`}
+      title="Notifications"
+      className="relative flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+    >
+      <Bell className="size-4.5" aria-hidden />
+      {count > 0 && (
+        <span
+          data-testid="notification-badge"
+          className="absolute -right-1 -top-1 min-w-4 rounded-full bg-primary px-1 text-center text-[10px] font-semibold leading-4 text-primary-foreground"
+        >
+          {count > 99 ? '99+' : count}
+        </span>
+      )}
+    </Link>
+  )
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth()
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -147,6 +178,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
         >
           {!collapsed && <Brand />}
+          <NotificationBadge />
           <button
             onClick={() => setCollapsed((c) => !c)}
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -218,7 +250,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Mobile top bar */}
       <header className="sticky top-0 z-30 flex items-center border-b border-border/70 bg-background/85 px-4 py-3 backdrop-blur md:hidden">
         <Brand />
-        <button onClick={logout} aria-label="Sign out" className="ml-auto p-2 text-muted-foreground">
+        <span className="ml-auto"><NotificationBadge /></span>
+        <button onClick={logout} aria-label="Sign out" className="p-2 text-muted-foreground">
           <LogOut className="size-5" aria-hidden />
         </button>
       </header>
