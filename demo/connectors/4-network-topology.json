@@ -1,0 +1,8 @@
+[
+  {
+    "record_id": "TOPO-1",
+    "asset_tag": "db-prod-02",
+    "description": "db-prod-02 sits behind and depends on core aggregation switch sw-core-7",
+    "depends_on": "sw-core-7"
+  }
+]

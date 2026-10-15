@@ -1,0 +1,20 @@
+# Only the backend is needed in the image; keep the context small.
+frontend/
+supabase/
+docs/
+demo/
+.kiro/
+.git/
+mermaid diagrams/
+reference-screenshots/
+dataset-final-atlas/
+*.pdf
+*.docx
+*.csv
+iki-soft-ui.html
+**/.venv/
+**/node_modules/
+**/__pycache__/
+**/.pytest_cache/
+**/.vite/
+**/.env

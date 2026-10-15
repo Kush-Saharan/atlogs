@@ -1,0 +1,14 @@
+[
+  {
+    "record_id": "REG-1",
+    "asset_tag": "P-101",
+    "rule_id": "RULE-VIB-Q",
+    "description": "Rotating equipment must complete a documented quarterly vibration inspection"
+  },
+  {
+    "record_id": "REG-2",
+    "asset_tag": "db-prod-02",
+    "rule_id": "RULE-PATCH-Q",
+    "description": "Production database servers must complete quarterly security patching"
+  }
+]

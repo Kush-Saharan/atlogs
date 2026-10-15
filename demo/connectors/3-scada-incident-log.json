@@ -1,0 +1,32 @@
+[
+  {
+    "record_id": "INC-1",
+    "serial_number": "SN-GF-4471",
+    "description": "Vibration alarm and rising bearing temperature on the feed pump; discharge flow fell roughly 18% over two hours",
+    "component": "bearing",
+    "sensors": "vibration, bearing_temp",
+    "date": "2026-07-01"
+  },
+  {
+    "record_id": "INC-2",
+    "serial_number": "SN-GF-4471",
+    "description": "Scheduled lubrication completed on the feed pump; vibration and temperature returned to baseline, no action required",
+    "component": "lubrication",
+    "date": "2026-07-03"
+  },
+  {
+    "record_id": "INC-3",
+    "asset_tag": "db-prod-02",
+    "description": "Intermittent packet loss and elevated round-trip latency to db-prod-02 during peak hours; CPU, memory and disk all within normal range",
+    "sensors": "packet_loss, rtt_ms",
+    "date": "2026-07-05"
+  },
+  {
+    "record_id": "INC-4",
+    "asset_tag": "sw-core-7",
+    "description": "Uplink port flapping on the core aggregation switch with repeated interface resets and CRC errors",
+    "component": "uplink port",
+    "sensors": "link_state, crc_errors",
+    "date": "2026-07-05"
+  }
+]

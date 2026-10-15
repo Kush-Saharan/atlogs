@@ -1,0 +1,16 @@
+# Railway config — builds the backend from the root Dockerfile and serves it on
+# Railway's built-in HTTPS domain. Railway injects $PORT (the Dockerfile CMD
+# already binds ${PORT:-7860}). Keep numReplicas = 1 (in-memory ingest-job
+# registry + asyncpg pool assume a single process). Railway Hobby allows enough
+# RAM (up to 8 GB) for full Docling, so DOCLING_ENABLED stays "true" (set it in
+# the dashboard Variables, along with DATABASE_URL / NVIDIA_API_KEY / FRONTEND_ORIGIN).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+numReplicas = 1

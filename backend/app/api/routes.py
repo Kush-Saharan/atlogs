@@ -1,0 +1,1095 @@
+"""Unified Assets Brain HTTP API (Layer 5, minus the chat/AI surface).
+
+Sync endpoints for discovery/resolution/queries; an SSE endpoint for ingestion
+that streams real per-step status (ui-ux "wait UX" requirement).
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import date
+from typing import Any, Literal
+
+from asyncpg.exceptions import UniqueViolationError
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+from app.db import get_pool
+from app.engine.graph.model import asset_node, rule_node
+from app.engine.graph.store import GraphStore
+from app.engine.resolution import SourceRecord
+from app.knowledge.terminology import key as term_key
+from app.services import auth, connectors, logs, pipeline
+from app.services import decision as decision_service
+from app.services import notifications as notification_service
+from app.services import priority as priority_service
+from app.services import risk as risk_service
+from app.services import schedule as schedule_service
+from app.services.document_ingest import (
+    _clean_system_name,
+    ingest_documents_events,
+)
+from app.services.document_jobs import registry as job_registry
+from app.workflows.chat import run_chat_events
+from app.workflows.compliance import run_compliance_events
+from app.workflows.rca import run_rca_events
+from app.workflows.retrieval import (
+    asset_okf,
+    get_workflow_run,
+    list_workflow_runs,
+    similar_cases,
+)
+
+
+async def _sse(gen) -> Any:
+    """Format a dict-event async generator as an SSE byte stream."""
+    async for event in gen:
+        yield pipeline.sse(event)
+
+router = APIRouter(
+    prefix="/api", tags=["unified-assets"], dependencies=[Depends(auth.require_role())]
+)
+# Login is the only route reachable without a token (main.py attaches both).
+public_router = APIRouter(prefix="/api", tags=["auth"])
+_admin = Depends(auth.require_role("admin"))
+_manager = Depends(auth.require_role("manager", "admin"))
+_graph = GraphStore()
+
+_SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+
+class DiscoverRequest(BaseModel):
+    records: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ResolveRequest(BaseModel):
+    records: list[SourceRecord] = Field(default_factory=list)
+
+
+class IngestRequest(BaseModel):
+    systems: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+
+
+class ChatRequest(BaseModel):
+    message: str
+    intent: str | None = None  # optional override (ask|rca|compliance|asset_lookup)
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+@public_router.post("/auth/login")
+async def login(req: LoginRequest) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "select id, email, password_hash, role from users where email = $1 and active",
+            req.email.strip().lower(),
+        )
+    if row is None or not auth.verify_password(req.password, row["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    return {
+        "token": auth.make_token(row["id"], row["role"]),
+        "user": {"id": row["id"], "email": row["email"], "role": row["role"]},
+    }
+@router.get("/auth/me")
+async def me(user: dict = Depends(auth.require_role())) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "select id, email, role from users where id = $1 and active", user["uid"]
+        )
+    if row is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return dict(row)
+
+
+class UserCreate(BaseModel):
+    email: str
+    password: str = Field(min_length=8)
+    role: str = "engineer"
+
+
+class UserUpdate(BaseModel):
+    role: str | None = None
+    active: bool | None = None
+
+
+def _check_role(role: str) -> None:
+    if role not in auth.ROLES:
+        raise HTTPException(status_code=422, detail=f"role must be one of {auth.ROLES}")
+
+
+@router.get("/admin/users", dependencies=[_admin])
+async def list_users() -> list[dict[str, Any]]:
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch(
+            "select id, email, role, active, created_at from users order by id"
+        )
+    return [dict(r) for r in rows]
+
+
+@router.post("/admin/users", dependencies=[_admin])
+async def create_user(req: UserCreate) -> dict[str, Any]:
+    _check_role(req.role)
+    email = req.email.strip().lower()
+    if "@" not in email:
+        raise HTTPException(status_code=422, detail="Enter a valid email")
+    async with get_pool().acquire() as conn:
+        try:
+            row = await conn.fetchrow(
+                "insert into users (email, password_hash, role) values ($1, $2, $3) "
+                "returning id, email, role, active, created_at",
+                email, auth.hash_password(req.password), req.role,
+            )
+        except UniqueViolationError:
+            raise HTTPException(status_code=409, detail="User already exists")
+    return dict(row)
+
+
+@router.patch("/admin/users/{user_id}")
+async def update_user(
+    user_id: int, req: UserUpdate, admin: dict = _admin
+) -> dict[str, Any]:
+    if req.role is not None:
+        _check_role(req.role)
+    if user_id == admin["uid"] and (req.role not in (None, "admin") or req.active is False):
+        raise HTTPException(status_code=400, detail="You cannot demote or deactivate yourself")
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "update users set role = coalesce($2, role), active = coalesce($3, active) "
+            "where id = $1 returning id, email, role, active, created_at",
+            user_id, req.role, req.active,
+        )
+    if row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return dict(row)
+
+
+class TermIn(BaseModel):
+    term: str
+    canonical: str
+@router.get("/admin/terminology", dependencies=[_admin])
+async def list_terms() -> list[dict[str, Any]]:
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch("select term, canonical from terminology order by term")
+    return [dict(r) for r in rows]
+@router.put("/admin/terminology", dependencies=[_admin])
+async def upsert_term(req: TermIn) -> dict[str, Any]:
+    term, canonical = term_key(req.term), req.canonical.strip()
+    if not term or not canonical:
+        raise HTTPException(status_code=422, detail="term and canonical are required")
+    async with get_pool().acquire() as conn:
+        await conn.execute(
+            "insert into terminology (term, canonical) values ($1, $2) "
+            "on conflict (term) do update set canonical = excluded.canonical",
+            term, canonical,
+        )
+    return {"term": term, "canonical": canonical}
+@router.delete("/admin/terminology/{term}", dependencies=[_admin])
+async def delete_term(term: str) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        res = await conn.execute("delete from terminology where term = $1", term_key(term))
+    if res == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Term not found")
+    return {"deleted": term_key(term)}
+class RCARequest(BaseModel):
+    question: str = ""
+    asset: str | None = None   # asset id / identifier / name
+
+
+class ComplianceRequest(BaseModel):
+    question: str = ""
+    rule: str | None = None
+    asset: str | None = None
+
+
+class ReviewAction(BaseModel):
+    action: str  # merge | separate | dismiss
+
+
+class ConnectorCreate(BaseModel):
+    name: str
+    description: str = ""
+    kind: str = "manual"  # manual | api
+    endpoint: str | None = None
+    payload: Any = None
+
+
+class SyncRequest(BaseModel):
+    payload: Any = None  # optional inline records to store before syncing
+
+
+@router.post("/logs", status_code=201)
+async def submit_log(
+    text: str | None = Form(default=None),
+    file: UploadFile | None = File(default=None),
+    force: bool = Form(default=False),
+    user: dict = Depends(auth.require_role()),
+) -> dict[str, Any]:
+    """Pasted text OR a .txt/.log/.csv upload (max 1 MB). 409 on a duplicate unless force."""
+    if file is not None and file.filename:
+        data, name = await file.read(logs.MAX_BYTES + 1), file.filename
+    elif text is not None:
+        data, name = text.encode(), None
+    else:
+        raise HTTPException(status_code=400, detail="Provide text or a file")
+    return await logs.submit(logs.validate(name, data), name, user["uid"], force)
+
+
+@router.get("/logs")
+async def list_logs() -> list[dict[str, Any]]:
+    return await logs.list_logs()
+
+
+@router.get("/logs/{log_id}")
+async def get_log(log_id: int) -> dict[str, Any]:
+    return await logs.get_log(log_id)
+
+
+class ReviewBody(BaseModel):
+    fields: dict[str, str | None]  # all six fields; empty/null means "no value"
+
+
+@router.put("/records/{log_id}/review")
+async def review_record(
+    log_id: int,
+    body: ReviewBody,
+    user: dict = Depends(auth.require_role("engineer", "admin")),
+) -> dict[str, Any]:
+    """The path id is the log id (one record per log). Managers decide, they do not edit fields."""
+    return await logs.review(log_id, body.fields, user["uid"])
+
+
+async def _similar(text: str, filters: dict[str, Any], k: int) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        return await similar_cases(conn, text, filters, k)
+
+
+@router.get("/records/{log_id}/similar")
+async def similar_to_record(
+    log_id: int,
+    equipment: str | None = None,
+    component: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    k: int = Query(default=5, ge=1, le=20),
+) -> dict[str, Any]:
+    """Past cases like this log (the log itself excluded); each match links to its log."""
+    text = (await logs.get_log(log_id))["original_text"]  # 404 if unknown
+    return await _similar(text, {
+        "equipment": equipment, "component": component, "exclude_log_id": log_id,
+        "date_from": date_from and date_from.isoformat(), "date_to": date_to and date_to.isoformat(),
+    }, k)
+
+
+@router.post("/records/{log_id}/risk")
+async def assess_record_risk(log_id: int, user: dict = Depends(auth.require_role())) -> dict[str, Any]:
+    """Score the log with the uncalibrated baseline and store the assessment."""
+    return await risk_service.assess_log(log_id, user["uid"])
+@router.get("/records/{log_id}/risk")
+async def get_record_risk(log_id: int) -> dict[str, Any] | None:
+    return await risk_service.latest(log_id)
+@router.post("/records/{log_id}/priority")
+async def recommend_record_priority(log_id: int, user: dict = Depends(auth.require_role())) -> dict[str, Any]:
+    """Store a pending P1-P4 recommendation with its explanation; a human decides (M.12)."""
+    return await priority_service.recommend_log(log_id, user["uid"])
+@router.get("/records/{log_id}/priority")
+async def get_record_priority(log_id: int) -> dict[str, Any] | None:
+    return await priority_service.latest(log_id)
+class DecisionIn(BaseModel):
+    action: Literal["approve", "modify", "reject"]
+    priority: Literal["P1", "P2", "P3", "P4"] | None = None
+    comment: str | None = Field(default=None, max_length=2000)
+@router.post("/recommendations/{rec_id}/decision", dependencies=[_manager])
+async def decide_recommendation(rec_id: int, req: DecisionIn, user: dict = Depends(auth.require_role())) -> dict[str, Any]:
+    """Manager approves, modifies (new priority) or rejects a pending recommendation; audited atomically."""
+    return await decision_service.decide(rec_id, user["uid"], req.action, req.priority, req.comment)
+@router.get("/records/{log_id}/decisions")
+async def record_decisions(log_id: int) -> list[dict[str, Any]]:
+    return await decision_service.history(log_id)
+@router.get("/audit", dependencies=[_manager])
+async def audit_trail() -> list[dict[str, Any]]:
+    return await decision_service.audit_log()
+class SimilarRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=5000)
+    equipment: str | None = None
+    component: str | None = None
+    date_from: date | None = None
+    date_to: date | None = None
+    k: int = Field(default=5, ge=1, le=20)
+
+
+@router.post("/similar")
+async def similar(req: SimilarRequest) -> dict[str, Any]:
+    """Past cases like free text (e.g. a new issue before it is logged)."""
+    return await _similar(req.text, {
+        "equipment": req.equipment, "component": req.component,
+        "date_from": req.date_from and req.date_from.isoformat(),
+        "date_to": req.date_to and req.date_to.isoformat(),
+    }, req.k)
+
+
+@router.post("/discover")
+async def discover(req: DiscoverRequest) -> dict[str, Any]:
+    result = pipeline.run_discovery(req.records)
+    return result.model_dump()
+
+
+@router.post("/resolve")
+async def resolve_endpoint(req: ResolveRequest) -> dict[str, Any]:
+    result = pipeline.run_resolution(req.records)
+    return result.model_dump()
+
+
+@router.post("/ingest")
+async def ingest(req: IngestRequest) -> StreamingResponse:
+    """Run the full pipeline, streaming per-step status as SSE."""
+    return StreamingResponse(
+        pipeline.ingest_events(req.systems),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+class IngestPathRequest(BaseModel):
+    path: str  # a server-side PDF file OR a folder of PDFs (local dev only)
+
+
+@router.post("/documents/ingest")
+async def documents_ingest(files: list[UploadFile] = File(...)) -> dict[str, Any]:
+    """Upload one or more PDFs. Reads the files within the request, then starts a
+    BACKGROUND job (parse -> durable save -> extract -> resolve). Returns a job id
+    immediately; the job keeps running even if the browser navigates away. Tail
+    status via GET /documents/jobs/{id}/stream."""
+    items: list[tuple[str, str, bytes]] = []
+    for f in files:
+        data = await f.read()  # must read while the request is open
+        name = f.filename or "document.pdf"
+        items.append((_clean_system_name(name), name, data))
+    label = (
+        items[0][1] if len(items) == 1 else f"{len(items)} documents"
+    ) if items else "documents"
+    job = job_registry.start(
+        "upload", label, lambda: ingest_documents_events(items)
+    )
+    return {"job_id": job.id, "status": job.status, "label": job.label}
+
+
+def _read_path_items(path: str) -> tuple[list[tuple[str, str, bytes]], str | None]:
+    """Read PDFs from a server-side file/folder into (system, name, bytes) items.
+    Returns (items, error). Local-dev convenience (reads the server filesystem)."""
+    import os
+
+    if not os.path.exists(path):
+        return [], f"Path not found: {path}"
+    if os.path.isdir(path):
+        pdfs = sorted(
+            os.path.join(path, n) for n in os.listdir(path) if n.lower().endswith(".pdf")
+        )
+    else:
+        pdfs = [path]
+    if not pdfs:
+        return [], "No PDF files found"
+    items: list[tuple[str, str, bytes]] = []
+    for fp in pdfs:
+        name = os.path.basename(fp)
+        try:
+            with open(fp, "rb") as fh:
+                items.append((_clean_system_name(name), name, fh.read()))
+        except Exception:  # noqa: BLE001 - skip unreadable files
+            continue
+    return items, None
+
+
+@router.post("/documents/ingest-path", dependencies=[_admin])
+async def documents_ingest_path(req: IngestPathRequest) -> dict[str, Any]:
+    """Ingest PDFs from a server-side path (file or folder) as a BACKGROUND job.
+    Returns a job id; tail via GET /documents/jobs/{id}/stream. Local-dev only."""
+    items, err = _read_path_items(req.path)
+    if err:
+        return {"error": err}
+    import os
+
+    label = os.path.basename(req.path.rstrip("/\\")) or req.path
+    job = job_registry.start(
+        "path", f"{label} ({len(items)} PDF)", lambda: ingest_documents_events(items)
+    )
+    return {"job_id": job.id, "status": job.status, "label": job.label, "count": len(items)}
+
+
+@router.get("/documents/jobs")
+async def documents_jobs() -> dict[str, Any]:
+    """List ingestion jobs (so the UI can reconnect to one still running)."""
+    return {"jobs": job_registry.list(), "running": job_registry.running() is not None}
+
+
+@router.get("/documents/jobs/{job_id}/stream")
+async def documents_job_stream(job_id: str) -> StreamingResponse:
+    """Tail a background ingestion job's status (SSE). Reconnect-safe: replays the
+    full buffer then follows the live tail. Disconnecting does NOT stop the job."""
+    job = job_registry.get(job_id)
+    if job is None:
+
+        async def _missing():
+            yield {"step": "error", "message": "Job not found (it may have expired)"}
+
+        return StreamingResponse(_sse(_missing()), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+    return StreamingResponse(
+        _sse(job_registry.stream(job)),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+@router.post("/documents/jobs/{job_id}/cancel")
+async def documents_job_cancel(job_id: str) -> dict[str, Any]:
+    ok = await job_registry.cancel(job_id)
+    return {"ok": ok}
+
+
+@router.get("/documents")
+async def list_documents() -> list[dict[str, Any]]:
+    """List durably-stored document parses (chain-of-custody records)."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "select id, system, filename, doc_type, parser, page_count, title, "
+            "status, error, parsed_at, processed_at from document_parses "
+            "order by parsed_at desc, id desc"
+        )
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "id": r["id"],
+                "system": r["system"],
+                "filename": r["filename"],
+                "doc_type": r["doc_type"],
+                "parser": r["parser"],
+                "page_count": r["page_count"],
+                "title": r["title"],
+                "status": r["status"],
+                "error": r["error"],
+                "parsed_at": r["parsed_at"].isoformat() if r["parsed_at"] else None,
+                "processed_at": r["processed_at"].isoformat() if r["processed_at"] else None,
+            }
+        )
+    return out
+
+
+@router.get("/assets")
+async def list_assets() -> list[dict[str, Any]]:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        assets = await conn.fetch(
+            "select unified_id, asset_name, needs_review, review_reason "
+            "from unified_assets order by unified_id"
+        )
+        idents = await conn.fetch(
+            "select unified_id, concept, value, is_primary from asset_identifiers"
+        )
+        crit = await conn.fetch(
+            "select i.unified_id, c.level from asset_criticality c "
+            "join asset_identifiers i on i.concept = c.concept and lower(i.value) = c.value"
+        )
+    levels = {r["unified_id"]: r["level"] for r in crit}
+    by_asset: dict[str, list[dict[str, Any]]] = {}
+    for r in idents:
+        by_asset.setdefault(r["unified_id"], []).append(
+            {"concept": r["concept"], "value": r["value"], "is_primary": r["is_primary"]}
+        )
+    return [
+        {
+            "unified_id": a["unified_id"],
+            "asset_name": a["asset_name"],
+            "needs_review": a["needs_review"],
+            "review_reason": a["review_reason"],
+            "identifiers": by_asset.get(a["unified_id"], []),
+            "criticality": levels.get(a["unified_id"], "unknown"),
+        }
+        for a in assets
+    ]
+class CriticalityIn(BaseModel):
+    level: str = Field(pattern="^(low|medium|high|unknown)$")
+@router.put("/assets/{unified_id}/criticality", dependencies=[_manager])
+async def set_criticality(unified_id: str, req: CriticalityIn) -> dict[str, Any]:
+    # shortcut: keyed by one identifier (primary first); if that identifier changes, re-set it.
+    async with get_pool().acquire() as conn:
+        ident = await conn.fetchrow(
+            "select concept, lower(value) as value from asset_identifiers "
+            "where unified_id = $1 order by is_primary desc, id limit 1",
+            unified_id,
+        )
+        if ident is None:
+            raise HTTPException(status_code=404, detail="Asset not found or has no identifier")
+        # Clear every identifier of this asset so a stale level cannot win.
+        await conn.execute(
+            "delete from asset_criticality c using asset_identifiers i "
+            "where i.unified_id = $1 and i.concept = c.concept and lower(i.value) = c.value",
+            unified_id,
+        )
+        if req.level != "unknown":
+            await conn.execute(
+                "insert into asset_criticality (concept, value, level) values ($1, $2, $3)",
+                ident["concept"], ident["value"], req.level,
+            )
+    return {"unified_id": unified_id, "criticality": req.level}
+class Window(BaseModel):
+    start: str
+    end: str
+class TechnicianIn(BaseModel):
+    name: str = Field(min_length=1)
+    skills: list[str] = Field(default_factory=list)
+    availability: list[Window] = Field(default_factory=list)
+class PartIn(BaseModel):
+    name: str = Field(min_length=1)
+    stock: int = Field(ge=0)
+def _tech(r) -> dict[str, Any]:
+    return {"id": r["id"], "name": r["name"], "skills": r["skills"],
+            "availability": json.loads(r["availability"])}
+@router.get("/resources/technicians", dependencies=[_manager])
+async def list_technicians() -> list[dict[str, Any]]:
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch("select id, name, skills, availability::text from technicians order by name")
+    return [_tech(r) for r in rows]
+@router.post("/resources/technicians", dependencies=[_manager], status_code=201)
+async def create_technician(req: TechnicianIn) -> dict[str, Any]:
+    return await _save_technician(None, req)
+@router.put("/resources/technicians/{tid}", dependencies=[_manager])
+async def update_technician(tid: int, req: TechnicianIn) -> dict[str, Any]:
+    return await _save_technician(tid, req)
+async def _save_technician(tid: int | None, req: TechnicianIn) -> dict[str, Any]:
+    skills = sorted({s.strip().lower() for s in req.skills if s.strip()})
+    avail = json.dumps([w.model_dump() for w in req.availability if w.start < w.end])
+    if len(json.loads(avail)) != len(req.availability):
+        raise HTTPException(status_code=422, detail="Each window must end after it starts")
+    sql = ("insert into technicians (name, skills, availability) values ($1, $2, $3::jsonb) "
+           "returning id, name, skills, availability::text" if tid is None else
+           "update technicians set name = $1, skills = $2, availability = $3::jsonb "
+           "where id = $4 returning id, name, skills, availability::text")
+    try:
+        async with get_pool().acquire() as conn:
+            row = await conn.fetchrow(sql, req.name.strip(), skills, avail, *([] if tid is None else [tid]))
+    except UniqueViolationError:
+        raise HTTPException(status_code=409, detail="A technician with that name exists")
+    if row is None:
+        raise HTTPException(status_code=404, detail="Technician not found")
+    return _tech(row)
+@router.delete("/resources/technicians/{tid}", dependencies=[_manager])
+async def delete_technician(tid: int) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        res = await conn.execute("delete from technicians where id = $1", tid)
+    if res == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Technician not found")
+    return {"deleted": tid}
+@router.get("/resources/parts", dependencies=[_manager])
+async def list_parts() -> list[dict[str, Any]]:
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch("select id, name, stock from parts order by name")
+    return [dict(r) for r in rows]
+@router.post("/resources/parts", dependencies=[_manager], status_code=201)
+async def create_part(req: PartIn) -> dict[str, Any]:
+    try:
+        async with get_pool().acquire() as conn:
+            row = await conn.fetchrow(
+                "insert into parts (name, stock) values ($1, $2) returning id, name, stock",
+                req.name.strip(), req.stock)
+    except UniqueViolationError:
+        raise HTTPException(status_code=409, detail="A part with that name exists")
+    return dict(row)
+@router.put("/resources/parts/{pid}", dependencies=[_manager])
+async def update_part(pid: int, req: PartIn) -> dict[str, Any]:
+    try:
+        async with get_pool().acquire() as conn:
+            row = await conn.fetchrow(
+                "update parts set name = $1, stock = $2 where id = $3 returning id, name, stock",
+                req.name.strip(), req.stock, pid)
+    except UniqueViolationError:
+        raise HTTPException(status_code=409, detail="A part with that name exists")
+    if row is None:
+        raise HTTPException(status_code=404, detail="Part not found")
+    return dict(row)
+@router.delete("/resources/parts/{pid}", dependencies=[_manager])
+async def delete_part(pid: int) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        res = await conn.execute("delete from parts where id = $1", pid)
+    if res == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Part not found")
+    return {"deleted": pid}
+
+
+@router.get("/review")
+async def review_queue() -> list[dict[str, Any]]:
+    """Open review items, each enriched with the CANDIDATE records under review
+    (system, text, identifiers, and which asset they resolved to) so a human can
+    see exactly what is being compared — not just a bare confidence number."""
+    pool = get_pool()
+    out: list[dict[str, Any]] = []
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "select id, kind, payload, reason, status from review_queue "
+            "where status = 'open' order by id"
+        )
+        for r in rows:
+            payload = r["payload"]
+            if isinstance(payload, str):
+                try:
+                    payload = json.loads(payload)
+                except json.JSONDecodeError:
+                    payload = {}
+            records = payload.get("records", []) if isinstance(payload, dict) else []
+            candidates: list[dict[str, Any]] = []
+            if records:
+                crows = await conn.fetch(
+                    """
+                    select sr.system, sr.record_id, sr.semantic_text, sr.raw_json,
+                           asr.unified_id, ua.asset_name
+                    from source_records sr
+                    left join asset_source_records asr on asr.source_record_id = sr.id
+                    left join unified_assets ua on ua.unified_id = asr.unified_id
+                    where sr.record_id = any($1::text[])
+                    """,
+                    records,
+                )
+                for c in crows:
+                    raw = c["raw_json"]
+                    if isinstance(raw, str):
+                        try:
+                            raw = json.loads(raw)
+                        except json.JSONDecodeError:
+                            raw = {}
+                    # surface identifier-ish fields (skip meta + free text)
+                    idents = {
+                        k: v
+                        for k, v in (raw or {}).items()
+                        if k not in ("record_id", "description", "asset_name")
+                        and not k.startswith("_")
+                        and v not in (None, "", [])
+                    }
+                    candidates.append(
+                        {
+                            "record_id": c["record_id"],
+                            "system": c["system"],
+                            "text": (c["semantic_text"] or "")[:240],
+                            "unified_id": c["unified_id"],
+                            "asset_name": c["asset_name"],
+                            "fields": idents,
+                        }
+                    )
+            out.append(
+                {
+                    "id": r["id"],
+                    "kind": r["kind"],
+                    "payload": payload,
+                    "reason": r["reason"],
+                    "status": r["status"],
+                    "candidates": candidates,
+                }
+            )
+    return out
+
+
+@router.post("/review/{item_id}/resolve")
+async def resolve_review(item_id: int, req: ReviewAction) -> dict[str, Any]:
+    """Act on a review item.
+
+    dismiss  -> just close it.
+    merge    -> record a durable 'merge' decision for its records and re-resolve.
+    separate -> record a durable 'separate' decision and re-resolve.
+    Decisions live in manual_decisions and are re-applied on every sync.
+    """
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "select payload from review_queue where id=$1 and status='open'", item_id
+        )
+        if row is None:
+            return {"ok": False, "error": "not found or already resolved"}
+
+        if req.action == "dismiss":
+            await conn.execute(
+                "update review_queue set status='dismissed' where id=$1", item_id
+            )
+            return {"ok": True, "status": "dismissed"}
+
+        if req.action not in ("merge", "separate"):
+            return {"ok": False, "error": "invalid action"}
+
+        payload = row["payload"]
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        records = payload.get("records", []) if isinstance(payload, dict) else []
+        for i in range(len(records)):
+            for j in range(i + 1, len(records)):
+                a, b = sorted((records[i], records[j]))
+                await conn.execute(
+                    "insert into manual_decisions (kind, record_a, record_b) "
+                    "values ($1,$2,$3) on conflict do nothing",
+                    req.action, a, b,
+                )
+        await conn.execute(
+            "update review_queue set status='resolved' where id=$1", item_id
+        )
+
+    # Re-resolve the corpus so the decision takes effect immediately.
+    async for _ in pipeline.ingest_records({}):
+        pass
+    return {"ok": True, "status": "resolved", "action": req.action}
+
+
+@router.get("/graph/rca")
+async def rca(asset: str = Query(..., description="unified asset id, e.g. ua-0001")) -> dict[str, Any]:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        rows = await _graph.rca(conn, asset_node(asset))
+    return {"asset": asset, "chain": rows}
+
+
+@router.get("/graph/compliance")
+async def compliance(rule: str = Query(..., description="rule id, e.g. RULE-LUBE-001")) -> dict[str, Any]:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        at_risk = await _graph.compliance_at_risk(conn, rule_node(rule))
+    return {"rule": rule, "at_risk_assets": at_risk}
+
+
+@router.get("/notifications")
+async def notifications(user: dict = Depends(auth.require_role())) -> dict[str, Any]:
+    """Role-specific in-app notifications (M-D7), derived on each request."""
+    items = await notification_service.for_role(user["role"])
+    return {"role": user["role"], "count": len(items), "items": items}
+
+
+@router.get("/overview")
+async def overview() -> dict[str, Any]:
+    """Dashboard counts + recent evidence for the Home screen."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        review_open = await conn.fetchval(
+            "select count(*) from review_queue where status = 'open'"
+        )
+        assets = await conn.fetchval("select count(*) from unified_assets")
+        needs_review = await conn.fetchval(
+            "select count(*) from unified_assets where needs_review"
+        )
+        records = await conn.fetchval("select count(*) from source_records")
+        edges_total = await conn.fetchval("select count(*) from edges")
+        edges_op = await conn.fetchval(
+            "select count(*) from edges where layer = 'operational'"
+        )
+        recent = await conn.fetch(
+            """
+            select sr.system, sr.record_id, sr.semantic_text, sr.ingest_ts,
+                   asr.unified_id
+            from source_records sr
+            left join asset_source_records asr on asr.source_record_id = sr.id
+            order by sr.ingest_ts desc, sr.id desc
+            limit 6
+            """
+        )
+        log_status = await notification_service.log_status_counts(conn)
+        high = await notification_service.high_priority(conn)
+        conflicts = await notification_service.unschedulable(conn)
+        decisions = await notification_service.recent_decisions(conn, 5)
+    return {
+        "log_status": log_status,
+        "pending_review": log_status["extracted"],
+        "high_priority": len(high),
+        "conflicts": len(conflicts),
+        "recent_decisions": [
+            {"action": d["action"], "priority": json.loads(d["final"])["priority"], "log_id": d["log_id"],
+             "user": d["email"], "created_at": d["created_at"].isoformat()}
+            for d in decisions
+        ],
+        "review_open": review_open or 0,
+        "unified_assets": assets or 0,
+        "assets_needing_review": needs_review or 0,
+        "source_records": records or 0,
+        "edges_total": edges_total or 0,
+        "edges_operational": edges_op or 0,
+        "recent_evidence": [
+            {
+                "citation": r["record_id"],
+                "system": r["system"],
+                "text": r["semantic_text"] or "",
+                "unified_id": r["unified_id"],
+                "ingested_at": r["ingest_ts"].isoformat() if r["ingest_ts"] else None,
+            }
+            for r in recent
+        ],
+    }
+
+
+def _node_type(node_id: str) -> tuple[str, str]:
+    """Map a prefixed node id to (type, display label)."""
+    prefix, _, rest = node_id.partition(":")
+    mapping = {
+        "asset": "asset",
+        "sr": "record",
+        "fm": "failure",
+        "cf": "cause",
+        "rule": "rule",
+        "wo": "work_order",
+        "sensor": "signal",
+        "sym": "symptom",
+        "act": "action",
+    }
+    if prefix == "comp":  # comp:<unified_id>:<name>
+        return "component", rest.partition(":")[2] or rest
+    if prefix in mapping:
+        return mapping[prefix], rest or node_id
+    # identifier concepts (serial_number:..., mac_address:..., uuid:...)
+    if prefix:
+        return "identifier", rest or node_id
+    return "concept", node_id
+
+
+@router.get("/graph")
+async def graph(
+    asset: str | None = Query(default=None, description="scope to an asset's neighborhood"),
+    limit: int = Query(default=500, le=2000),
+) -> dict[str, Any]:
+    """Return nodes + links for the knowledge-graph visualization."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        if asset:
+            rows = await _graph.traverse(conn, asset_node(asset), None, max_depth=4)
+            links_raw = [
+                (r["source_id"], r["relation_type"], r["target_id"], r.get("layer", "physical"))
+                for r in rows
+            ]
+        else:
+            edge_rows = await conn.fetch(
+                "select source_id, relation_type, target_id, layer from edges limit $1",
+                limit,
+            )
+            links_raw = [
+                (r["source_id"], r["relation_type"], r["target_id"], r["layer"])
+                for r in edge_rows
+            ]
+        # asset display names
+        names = {
+            r["unified_id"]: r["asset_name"]
+            for r in await conn.fetch("select unified_id, asset_name from unified_assets")
+        }
+
+    node_ids: set[str] = set()
+    links: list[dict[str, Any]] = []
+    for src, rel, tgt, layer in links_raw:
+        node_ids.add(src)
+        node_ids.add(tgt)
+        links.append({"source": src, "target": tgt, "relation": rel, "layer": layer})
+
+    nodes: list[dict[str, Any]] = []
+    for nid in sorted(node_ids):
+        ntype, label = _node_type(nid)
+        if ntype == "asset":
+            label = names.get(label, label)
+        nodes.append({"id": nid, "type": ntype, "label": label})
+
+    # Derived asset-to-asset relations so the graph shows how the canonical
+    # assets we resolved relate to EACH OTHER, not just asset->record spokes:
+    #   RELATED_TO  — grounded, exact: the two assets share an identifier value.
+    #   SIMILAR_TO  — grounded in descriptive text (labeled, not a hard link).
+    if not asset:
+        pair_seen: set[frozenset[str]] = set()
+        async with pool.acquire() as conn:
+            shared = await conn.fetch(
+                """
+                select distinct a.unified_id as a_id, b.unified_id as b_id,
+                       a.concept, a.value
+                from asset_identifiers a
+                join asset_identifiers b
+                  on a.concept = b.concept
+                 and lower(a.value) = lower(b.value)
+                 and a.unified_id < b.unified_id
+                """
+            )
+            try:
+                similar = await conn.fetch(
+                    """
+                    select a_id, b_id, sim from (
+                      select asr1.unified_id as a_id, asr2.unified_id as b_id,
+                             max(1 - (sr1.embedding <=> sr2.embedding)) as sim
+                      from asset_source_records asr1
+                      join source_records sr1
+                        on sr1.id = asr1.source_record_id and sr1.embedding is not null
+                      join asset_source_records asr2 on asr2.unified_id > asr1.unified_id
+                      join source_records sr2
+                        on sr2.id = asr2.source_record_id and sr2.embedding is not null
+                      group by asr1.unified_id, asr2.unified_id
+                    ) p
+                    where sim >= 0.72
+                    order by sim desc
+                    limit 60
+                    """
+                )
+            except Exception:
+                similar = []
+        for r in shared:
+            an, bn = asset_node(r["a_id"]), asset_node(r["b_id"])
+            if an in node_ids and bn in node_ids:
+                pair_seen.add(frozenset((an, bn)))
+                links.append(
+                    {
+                        "source": an,
+                        "target": bn,
+                        "relation": "RELATED_TO",
+                        "layer": "physical",
+                        "metadata": {"via": f"{r['concept']} = {r['value']}"},
+                    }
+                )
+        for r in similar:
+            an, bn = asset_node(r["a_id"]), asset_node(r["b_id"])
+            if an in node_ids and bn in node_ids and frozenset((an, bn)) not in pair_seen:
+                pair_seen.add(frozenset((an, bn)))
+                links.append(
+                    {
+                        "source": an,
+                        "target": bn,
+                        "relation": "SIMILAR_TO",
+                        "layer": "physical",
+                        "metadata": {"similarity": round(float(r["sim"]), 2)},
+                    }
+                )
+
+    return {
+        "nodes": nodes,
+        "links": links,
+        "stats": {"records": len(nodes), "relationships": len(links)},
+    }
+
+
+@router.get("/asset/{unified_id}")
+async def asset_detail(unified_id: str) -> dict[str, Any]:
+    """OKF-shaped concept document for one canonical asset (frontmatter + body).
+
+    Front matter = canonical name/type + aliases with their source provenance;
+    body = consolidated per-source knowledge; plus asset-to-asset relations and
+    citations. Powers the node inspector. 404 if the asset is unknown.
+    """
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        doc = await asset_okf(conn, unified_id)
+    if doc is None:
+        return {"error": "not_found", "unified_id": unified_id}
+    return doc
+
+
+# --- workflow run history --------------------------------------------------
+@router.get("/history")
+async def history(
+    kind: str | None = Query(default=None, description="rca | compliance"),
+    limit: int = Query(default=50, le=200),
+) -> list[dict[str, Any]]:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        return await list_workflow_runs(conn, kind, limit)
+
+
+@router.get("/history/{run_id}")
+async def history_run(run_id: int) -> dict[str, Any]:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        run = await get_workflow_run(conn, run_id)
+    return run or {"error": "not_found", "id": run_id}
+
+
+# --- AI workflows (streamed) ----------------------------------------------
+@router.post("/chat")
+async def chat(req: ChatRequest) -> StreamingResponse:
+    """Chatbot: routes to ask/rca/compliance/lookup, streaming status + tokens."""
+    return StreamingResponse(
+        run_chat_events(req.message, req.intent),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+@router.post("/rca")
+async def rca_workflow(req: RCARequest) -> StreamingResponse:
+    """Root-cause analysis, streaming per-stage status (SSE)."""
+    return StreamingResponse(
+        run_rca_events(req.question, req.asset),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+@router.post("/compliance")
+async def compliance_workflow(req: ComplianceRequest) -> StreamingResponse:
+    """Compliance posture + at-risk propagation, streaming per-stage status (SSE)."""
+    return StreamingResponse(
+        run_compliance_events(req.question, req.rule, req.asset),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+# --- connectors (named data sources, incremental + accumulative sync) -------
+@router.get("/connectors")
+async def get_connectors() -> list[dict[str, Any]]:
+    return await connectors.list_connectors()
+
+
+@router.post("/connectors")
+async def add_connector(req: ConnectorCreate) -> dict[str, Any]:
+    return await connectors.create_connector(
+        req.name, req.description, req.kind, req.endpoint, req.payload
+    )
+
+
+@router.post("/connectors/{connector_id}/sync")
+async def sync_connector(connector_id: int, req: SyncRequest) -> StreamingResponse:
+    """Fetch the source's new records and re-resolve the corpus (streamed SSE)."""
+    return StreamingResponse(
+        _sse(connectors.sync_connector(connector_id, req.payload)),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
+@router.delete("/connectors/{connector_id}", dependencies=[_admin])
+async def remove_connector(connector_id: int) -> dict[str, Any]:
+    """Delete a connector, drop its records, and re-resolve what remains."""
+    async for _ in connectors.delete_connector(connector_id):
+        pass
+    return {"ok": True}
+
+
+class DefaultIn(BaseModel):
+    skill: str = Field(min_length=1)
+    duration_min: int = Field(gt=0, le=10080)
+    parts: list[str] = Field(default_factory=list)
+@router.get("/schedule/defaults", dependencies=[_manager])
+async def list_defaults() -> list[dict[str, Any]]:
+    async with get_pool().acquire() as conn:
+        rows = await conn.fetch("select component, skill, duration_min, parts from component_defaults order by component")
+    return [dict(r) for r in rows]
+@router.put("/schedule/defaults/{component}", dependencies=[_manager])
+async def save_default(component: str, req: DefaultIn) -> dict[str, Any]:
+    comp = component.strip().lower()
+    if not comp:
+        raise HTTPException(status_code=422, detail="Component is required")
+    parts = sorted({p.strip().lower() for p in req.parts if p.strip()})
+    async with get_pool().acquire() as conn:
+        row = await conn.fetchrow(
+            "insert into component_defaults (component, skill, duration_min, parts) values ($1,$2,$3,$4) "
+            "on conflict (component) do update set skill = $2, duration_min = $3, parts = $4 "
+            "returning component, skill, duration_min, parts", comp, req.skill.strip().lower(), req.duration_min, parts)
+    return dict(row)
+@router.delete("/schedule/defaults/{component}", dependencies=[_manager])
+async def delete_default(component: str) -> dict[str, Any]:
+    async with get_pool().acquire() as conn:
+        res = await conn.execute("delete from component_defaults where component = $1", component.strip().lower())
+    if res == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Default not found")
+    return {"deleted": component}
+@router.post("/schedule/propose", dependencies=[_manager])
+async def propose_schedule(days: int = Query(default=14, ge=1, le=60), user: dict = Depends(auth.require_role())) -> dict[str, Any]:
+    """Greedy proposal for all pending recommendations. A human confirms it (M.12); nothing is booked."""
+    return await schedule_service.propose_schedule(user["uid"], days)
+@router.get("/schedule/proposal", dependencies=[_manager])
+async def latest_proposal() -> dict[str, Any] | None:
+    return await schedule_service.latest()
