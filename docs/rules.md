@@ -2,8 +2,8 @@
 
 > Mandatory rules for all contributors. Process rules (branches, testing, status
 > words) are in [`AGENTS.md`](../AGENTS.md); this file holds the system invariants.
-> Rules marked *(planned)* apply to code that does not exist yet: follow them when
-> building it.
+> All rules below describe code that exists on `feat/atlogs-core`; where a rule is
+> not enforced by a test, the section says so.
 
 ---
 
@@ -43,11 +43,11 @@
 ### 2.1 Originals are immutable
 
 - `source_records.raw_json` is never modified after storage.
-- *(planned)* `maintenance_logs.original_text` is never modified; cleaning and
+- `maintenance_logs.original_text` is never modified; cleaning and
   normalisation work on copies.
 - Derived data (assets, edges, OKF bundles) can be rebuilt from raw records.
 
-### 2.2 Reviewed beside extracted *(planned)*
+### 2.2 Reviewed beside extracted 
 
 - `maintenance_records.extracted` is written once by the extractor.
 - Human corrections go to `maintenance_records.reviewed`, with `reviewed_by` and
@@ -78,8 +78,8 @@
 
 - Records: `UNIQUE (system, record_id)`.
 - Documents: `UNIQUE (sha256)`; re-uploading an identical file is a no-op.
-- *(planned)* Logs: `UNIQUE (sha256)` with a duplicate **warning**; the user
-  may submit anyway.
+- Logs: `sha256` is indexed, **not** unique. A duplicate returns 409 with `existing_id`;
+  `force=true` ("submit anyway") stores a second row.
 - OKF bundles: re-embed only when `body_hash` changes.
 
 ### 2.7 Schema changes are additive
@@ -91,7 +91,7 @@
 
 ## 3. Extraction, LLM & AI Rules
 
-### 3.1 Rule-based extraction first *(planned, M-D3)*
+### 3.1 Rule-based extraction first (M-D3)
 
 - Extraction runs on patterns, the terminology table and a negation check, with
   char spans, a confidence value and `needs_review` per field.
@@ -163,7 +163,7 @@ Never use the reasoning tier for routing, classification or extraction.
   (P1 first, then id), gives each the earliest slot of a free technician with the required skill, and
   uses up one unit per listed part within the proposal only. Skill, duration and parts per component
   come from the manager-editable `component_defaults` table; unknown components need skill `general`
-  for 60 min. A proposal books nothing and leaves part stock unchanged until a decision (M.12).
+  for 60 min. A proposal books nothing, part stock is never written back, and a decision does not confirm it (not built).
 - No LLM computes risk, priority, schedules or decisions.
 
 ### 4.2 Resolution confidence (existing)
@@ -195,22 +195,24 @@ calibration, anomaly gating (primary signal).
 
 ## 5. API & Backend Rules
 
-### 5.1 Access control *(planned, M-D2)*
+### 5.1 Access control (M-D2)
 
 - Every endpoint depends on `require_role()`; no route is public except
   `GET /api/health` and login.
-- Passwords hashed with stdlib `hashlib.scrypt`; tokens HMAC-signed with expiry.
-- Roles: `engineer`, `manager`, `admin`. Only `manager` decides on
-  recommendations; only `admin` manages users and resources.
+- Passwords hashed with stdlib `hashlib.scrypt`; tokens HMAC-signed, 8 h expiry; the API refuses to start without `AUTH_SECRET`.
+- Roles: `engineer`, `manager`, `admin`. `manager`/`admin` decide on
+  recommendations, schedule, manage resources and criticality and read the audit;
+  only `admin` manages users, terminology and connector deletion; only `engineer`/`admin` edit review fields.
+- Not covered: login rate limiting, token revocation, password reset.
 - No default hard-coded password; the first admin comes from a script reading
-  env (M-Q4).
-- **Today no endpoint is authenticated.** Don't expose real data until M.1 lands.
+  env (M-D9, `backend/scripts/create_admin.py`).
+- Routes are checked by `test_route_auth.py` (401 without a token, 403 for the wrong role).
 
 ### 5.2 Validation at the boundary
 
 - The backend owns validation, permissions and database writes; the frontend
   only presents and submits.
-- *(planned)* Log uploads check type (`.txt`/`.log`/`.csv` or text) and size
+- Log uploads check type (`.txt`/`.log`/`.csv` or text) and size
   before anything is stored.
 
 ### 5.3 Streaming
@@ -258,6 +260,7 @@ bundles (`body_hash`).
 - New non-trivial logic ships with tests: extraction + negation, normaliser,
   risk formula (incl. missing data), priority factors, scheduler conflicts,
   role denials, audit preservation (see each M task's Evidence column).
+- `test_e2e_spec6.py` walks spec §6 (upload → extract → review → graph → similar → risk → priority → schedule → decision → audit). It runs offline and only against a `localhost`/`127.0.0.1` `DATABASE_URL`; otherwise it skips.
 - DB-integration tests **skip** (not fail) without Postgres.
 - Formula changes require matching test updates.
 

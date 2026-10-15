@@ -2,9 +2,9 @@
 
 > How atlogs stores raw evidence, processed records, recommendations and
 > decisions. All tables live in one PostgreSQL database, defined in
-> `backend/app/db/schema.sql` (applied by hand). **Existing** = in schema.sql
-> today. **Planned** = from the data model in
-> [`tasks.md`](tasks.md), not yet in schema.sql.
+> `backend/app/db/schema.sql` (applied by hand). Every table below is in
+> schema.sql on `feat/atlogs-core`; the data-model summary is also in
+> [`tasks.md`](tasks.md).
 
 ---
 
@@ -13,31 +13,31 @@
 ```mermaid
 flowchart TB
     subgraph L0 ["Layer 0 — Raw evidence"]
-        ML["maintenance_logs (planned)<br/>original text, sha256, status"]
+        ML["maintenance_logs<br/>original text, sha256, status"]
         SR["source_records (existing)<br/>raw_json, semantic_text, embedding"]
         DP["document_parses (existing)<br/>PDF parse, custody"]
     end
     subgraph L1 ["Layer 1 — Structured records"]
-        MR["maintenance_records (planned)<br/>extracted + reviewed side by side"]
-        T["terminology (planned)"]
+        MR["maintenance_records<br/>extracted + reviewed side by side"]
+        T["terminology"]
     end
     subgraph L2 ["Layer 2 — Equipment identity"]
-        UA["unified_assets (existing, = Equipment)<br/>+ criticality (planned)"]
+        UA["unified_assets (existing, = Equipment)<br/>+ asset_criticality"]
         AI["asset_identifiers · asset_source_records"]
     end
     subgraph L3 ["Layer 3 — Relationships"]
         E["edges (existing)"]
         OKF["okf_documents (existing)"]
     end
-    subgraph L4 ["Layer 4 — Assessment & planning (planned)"]
+    subgraph L4 ["Layer 4 — Assessment & planning"]
         RA["risk_assessments"]
         RC["recommendations"]
         RES["technicians · parts"]
         SP["schedule_proposals"]
     end
     subgraph L5 ["Layer 5 — Decisions & people"]
-        U["users (planned)"]
-        DA["decision_audit (planned, append-only)"]
+        U["users"]
+        DA["decision_audit (append-only)"]
         MD["manual_decisions · review_queue (existing)"]
     end
 
@@ -60,13 +60,13 @@ Equipment → `unified_assets`; Resources → `technicians`, `parts`; Risk →
 
 ---
 
-## 2. Planned tables (additive)
+## 2. Maintenance tables (additive)
 
 | Table | Key columns | Rules |
 |-------|-------------|-------|
 | `users` | email unique, password_hash, role (`engineer`/`manager`/`admin`), active | scrypt hash; never store plain passwords |
-| `maintenance_logs` | sha256 unique, filename, original_text, submitted_by, status (`received`/`extracted`/`reviewed`/`error`), error | `original_text` never modified |
-| `maintenance_records` | log_id FK unique, `extracted` jsonb (value, span, confidence, needs_review per field), `reviewed` jsonb, reviewed_by, reviewed_at, unified_id | Reviewed values stored **beside** extracted, never over them |
+| `maintenance_logs` | sha256 (indexed, not unique), filename, original_text, submitted_by, status (`received`/`extracted`/`reviewed`/`error`), error | `original_text` never modified |
+| `maintenance_records` | log_id FK, `extracted` jsonb (value, span, confidence, needs_review per field), `reviewed` jsonb, reviewed_by, reviewed_at, unified_id | Reviewed values stored **beside** extracted, never over them |
 | `terminology` | term, canonical, kind (component/symptom/action/abbrev) | Seeded (e.g. brg → bearing) |
 | `risk_assessments` | log_id FK, score, category, factors/features/input_refs jsonb, method_version, insufficient_evidence, created_by | Insert-only; labelled *uncalibrated*; `input_refs` lists the log ids and criticality used |
 | `recommendations` | record_id FK, risk_id FK, priority, explanation jsonb, status (`pending`/`approved`/`modified`/`rejected`) | Status changes only via a decision |
@@ -100,7 +100,7 @@ unchanged. Traceability chain: `decision_audit` → `recommendations` →
 | `workflow_runs` | Hidden RCA/compliance history; `kind` CHECK-limited to `rca`/`compliance` |
 
 The existing `review_queue` is for entity merges only. Field-level review of
-extracted log values is the planned `maintenance_records.reviewed`.
+extracted log values is `maintenance_records.reviewed`.
 
 ---
 
@@ -125,7 +125,7 @@ confidence = min(1.0, base × redundancy × conflict_penalty)
 
 ---
 
-## 5. Retrieval (existing, reused by M.7)
+## 5. Retrieval (existing, reused by `similar_cases`, M.7)
 
 ```mermaid
 flowchart LR
@@ -138,8 +138,7 @@ flowchart LR
     RRF --> RR["Top-15 → optional rerank"] --> K["Top-k + best OKF bundle"]
 ```
 
-Fusion is deterministic. Filters, a no-match threshold and record-to-record
-similarity are planned in M.7.
+Fusion is deterministic. `similar_cases` adds equipment / component / date filters on current record values, a no-match threshold and an FTS-only fallback (see `architecture.md` §6).
 
 ---
 
@@ -148,8 +147,7 @@ similarity are planned in M.7.
 `extract_ops.py` classifies records with a deterministic vocabulary first
 (fail / leak / alarm → anomaly; completed / nominal / within tolerance →
 benign); the LLM is only a tie-breaker. It has **no negation handling** today
-("no leak found" is classified anomaly). Negation-aware extraction for logs is
-planned in M.4; the gate itself stays as-is (M-D3).
+("no leak found" is classified anomaly). Log extraction (`engine/log_extract.py`) is negation-aware on its own; the gate itself stays as-is (M-D3).
 
 ---
 
@@ -164,7 +162,7 @@ planned in M.4; the gate itself stays as-is (M-D3).
 
 ---
 
-## 8. Lifecycle of a maintenance log (planned)
+## 8. Lifecycle of a maintenance log
 
 ```mermaid
 stateDiagram-v2
@@ -179,4 +177,4 @@ stateDiagram-v2
     recommended --> decided: manager approves / modifies / rejects → decision_audit
 ```
 
-A failure at any step leaves the original log and earlier rows intact.
+`maintenance_logs.status` only holds `received`, `extracted`, `reviewed` and `error`. `in_pipeline`, `assessed`, `recommended` and `decided` are not stored; they are read from the existence of `source_records`, `risk_assessments`, `recommendations` and `decision_audit` rows. A failure at any step leaves the original log and earlier rows intact.

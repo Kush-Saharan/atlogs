@@ -2,8 +2,10 @@
 
 > **Course:** UCS503P Software Engineering Project, Thapar Institute
 > Target behaviour: [`maintenance_of_unstructured_logs_context.md`](../maintenance_of_unstructured_logs_context.md) (spec).
-> Status of each requirement: [`tasks.md`](tasks.md). Nothing below is "implemented"
-> unless tasks.md links evidence.
+> The maintenance modules below are implemented on branch `feat/atlogs-core`
+> (not merged, not deployed). Verification status and evidence per task:
+> [`tasks.md`](tasks.md). Spec §6 end to end: `backend/tests/test_e2e_spec6.py`.
+> Risk and priority numbers are *uncalibrated* baselines (M-D5).
 
 ---
 
@@ -190,7 +192,7 @@ tests stay working, but they are not atlogs requirements.
 | Risk and priority | Expected inputs used; missing data explicit; explanation matches the formula; estimate shown as estimate; evaluated against labelled outcomes where available |
 | Scheduling | No double-booking; skills and parts checked; infeasible reported; human approval kept |
 | Audit and security | Approve / modify / reject recorded; original vs revised distinguishable; user + timestamp; role denials; failed operations don't corrupt records |
-| End to end | Spec §6 example (Pump P-104) through the whole flow |
+| End to end | Spec §6 example (Pump P-104) through the whole flow: `test_e2e_spec6.py` (needs a local database; skips otherwise). Not covered: browser flow, live NVIDIA embeddings, real logs |
 
 The existing `backend/eval_suite.py` (resolution F1, anomaly gating, grounding,
 calibration, leakage, compliance determinism) still runs; its chat/RCA/compliance
@@ -203,12 +205,12 @@ parts cover hidden features only.
 | Layer | Choice |
 |-------|--------|
 | Database | PostgreSQL + pgvector + tsvector FTS (Supabase); schema in `backend/app/db/schema.sql`, applied by hand |
-| Backend | Python 3.13, FastAPI (async), SSE, asyncpg |
+| Backend | Python 3.12+, FastAPI (async), SSE, asyncpg |
 | LLM / embeddings | NVIDIA NIM (Nemotron family) via LangChain; optional for extraction |
 | Orchestration | LangGraph (existing workflows) |
 | Documents | Docling, pypdfium2 fallback |
 | Frontend | Vite + React 19 + TypeScript, Tailwind CSS v4, shadcn/ui, d3-force-3d |
-| Auth (planned) | stdlib `hashlib.scrypt` + `hmac` — no new dependency |
+| Auth | stdlib `hashlib.scrypt` + `hmac` — no new dependency |
 
 ---
 
@@ -220,4 +222,4 @@ parts cover hidden features only.
 - Custom LLM fine-tuning
 - Native mobile apps (responsive web only)
 - Multi-language / i18n
-- Email or external notification delivery, unless M-Q2 decides otherwise
+- Email or external notification delivery, (notifications are in-app only, M-D7)

@@ -1,8 +1,8 @@
 # atlogs — System Architecture
 
 > Code-level entry points: [`AGENTS.md`](../AGENTS.md) §1. Data model:
-> [`memory.md`](memory.md). Status of planned parts: [`tasks.md`](tasks.md).
-> **Existing** = in the code today. **Planned** = task M.x, not built.
+> [`memory.md`](memory.md). Task status: [`tasks.md`](tasks.md).
+> Everything below is in the code on branch `feat/atlogs-core`. Task status and evidence: [`tasks.md`](tasks.md); the end-to-end walk of spec §6 is `backend/tests/test_e2e_spec6.py`. Nothing is deployed.
 
 ---
 
@@ -26,24 +26,24 @@
 
 ```mermaid
 flowchart TB
-    L["Maintenance log<br/>text / .txt / .log / .csv"] --> V["Validate + store<br/>maintenance_logs (planned M.2)"]
-    V --> X["Rule-based extraction<br/>+ terminology (planned M.3, M.4)"]
-    X --> RV["Human review<br/>maintenance_records.reviewed (planned M.5)"]
+    L["Maintenance log<br/>text / .txt / .log / .csv"] --> V["Validate + store<br/>maintenance_logs (M.2)"]
+    V --> X["Rule-based extraction<br/>+ terminology (M.3, M.4)"]
+    X --> RV["Human review<br/>maintenance_records.reviewed (M.5)"]
     RV --> P["Existing pipeline<br/>source_records system='maintenance_logs' (M.6)"]
     P --> G["Resolution + edges<br/>(existing)"]
-    G --> S["Similar cases<br/>hybrid_search + filters (planned M.7)"]
-    S --> RK["Risk baseline<br/>(planned M.9)"]
+    G --> S["Similar cases<br/>similar_cases + filters (M.7)"]
+    S --> RK["Risk baseline<br/>(M.9)"]
     RK --> PR["Priority recommendation<br/>(M.10)"]
-    PR --> SC["Schedule proposal<br/>(planned M.11)"]
-    SC --> D["Dashboard + notifications<br/>(planned M.13)"]
-    D --> H["Manager decision<br/>(planned M.12)"]
-    H --> A["decision_audit<br/>append-only (planned M.12)"]
+    PR --> SC["Schedule proposal<br/>(M.11)"]
+    SC --> D["Dashboard + notifications<br/>(M.13)"]
+    D --> H["Manager decision<br/>(M.12)"]
+    H --> A["decision_audit<br/>append-only (M.12)"]
 ```
 
 | Tier | Technology | atlogs responsibilities |
 |------|-----------|------------------------|
-| Frontend | Vite + React 19 + TS, Tailwind v4, shadcn/ui | Login, log upload, review, record detail, recommendations, schedule, audit, dashboard (planned); graph, assets, connectors, review queue, documents (existing) |
-| Backend | Python 3.13, FastAPI, SSE | Auth + role checks, log validation, extraction, scoring, scheduling (planned); ingest pipeline, resolution, graph, retrieval (existing) |
+| Frontend | Vite + React 19 + TS, Tailwind v4, shadcn/ui | Login, users (admin), logs, log review + similar cases + risk + priority + decision, resources, schedule, audit, dashboard and notification badge; graph, assets, connectors, review queue, documents |
+| Backend | Python 3.12+, FastAPI, SSE | Auth + role checks, log validation, extraction, scoring, scheduling, decisions, notifications; ingest pipeline, resolution, graph, retrieval |
 | Database | PostgreSQL + pgvector + tsvector | All storage — one database |
 | LLM / AI | NVIDIA NIM (Nemotron) | Optional: embeddings, rerank, filling empty extraction fields. Shared 35 rpm limiter |
 | Documents | Docling, pypdfium2 fallback | PDF parse with chain-of-custody (existing) |
@@ -55,15 +55,15 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph FE ["Frontend"]
-        Shell["AppShell nav (existing)"]
-        PagesE["Existing pages<br/>Home · Graph · Connectors<br/>Assets · Review queue · Documents"]
-        PagesP["Planned pages<br/>Login · Logs · Log review<br/>Record detail · Recommendations<br/>Resources · Audit"]
+        Shell["AppShell nav"]
+        PagesE["Foundation pages<br/>Home · Graph · Connectors<br/>Assets · Review queue · Documents"]
+        PagesP["Maintenance pages<br/>Login · Users · Logs · Log review<br/>Resources · Schedule · Audit"]
         Hidden["Hidden pages (M-D1)<br/>Ask · RCA · Compliance"]
     end
 
     subgraph BE ["Backend (FastAPI, routes.py)"]
-        Auth["require_role() (planned M.1)"]
-        subgraph Existing
+        Auth["require_role() (M.1)"]
+        subgraph Foundation
             Pipeline["Pipeline (8-step ingest)"]
             Resolution["Resolution engine"]
             Graph["Graph projection + CTEs"]
@@ -73,7 +73,7 @@ flowchart TB
             Rate["Rate limiter 35 rpm"]
             Wf["Chat / RCA / Compliance (hidden)"]
         end
-        subgraph Planned
+        subgraph Maintenance
             Logs["Log ingestion M.2"]
             Extract["Rule extractor + terminology M.3–M.4"]
             Review["Record review M.5"]
@@ -82,6 +82,7 @@ flowchart TB
             Priority["Priority M.10"]
             Sched["Scheduler M.11"]
             Decide["Decisions + audit M.12"]
+            Notify["Notifications M.13"]
         end
     end
 
@@ -90,8 +91,8 @@ flowchart TB
     PagesE --> Auth
     PagesP --> Auth
     Hidden --> Auth
-    Auth --> Existing
-    Auth --> Planned
+    Auth --> Foundation
+    Auth --> Maintenance
     Logs --> Extract --> Review --> Pipeline
     Pipeline --> Resolution --> Graph
     Similar --> Retrieval
@@ -99,13 +100,13 @@ flowchart TB
     Priority --> Risk
     Sched --> Priority
     Decide --> Sched
-    Existing --> DB
-    Planned --> DB
+    Foundation --> DB
+    Maintenance --> DB
 ```
 
 ---
 
-## 4. Maintenance-log ingestion path (planned M.2–M.6)
+## 4. Maintenance-log ingestion path (M.2–M.6)
 
 ```mermaid
 sequenceDiagram
@@ -128,7 +129,7 @@ sequenceDiagram
     P->>DB: resolve → unified_assets (Equipment) → edges → OKF bundle
 ```
 
-Re-correction after first approval is open decision M-Q1.
+Re-correction after first approval (M-D6): only `maintenance_records.reviewed` changes; the `source_records` row and its `raw_json` are never rewritten, and every rebuild overlays the current reviewed values (`logs.projection_raw`). A correction therefore reaches the graph at the next rebuild.
 
 The existing inputs stay: JSON connectors / `POST /api/ingest` and PDF upload
 (`/api/documents/*`) both feed the same pipeline:
@@ -158,13 +159,11 @@ Traversal uses recursive CTEs with cycle guard and depth limit.
 
 ## 6. Similar-case retrieval
 
-Existing `hybrid_search(conn, query, k)`: dense over `source_records` + FTS +
+`hybrid_search(conn, query, k)`: dense over `source_records` + FTS +
 dense over `okf_documents`, fused by RRF (k=60), optional NVIDIA rerank, best
 OKF bundle. Query text only; no filters.
 
-Planned `similar_cases(record_id or text, filters)` (M.7) wraps it with
-equipment / component / date filters, a "no relevant match" threshold, and an
-FTS-only path when no key is set. Results always link to the source log.
+`similar_cases(conn, text, filters, k)` (M.7, `workflows/retrieval.py`) is restricted to `maintenance_logs` records and supports equipment / component / ISO date-range filters on current values (reviewed, else extracted). FTS relevance is a Dice word overlap (`SIMILAR_MIN_FTS` 0.25); pgvector is fused with `_rrf_fuse` only when embeddings work (`SIMILAR_MIN_VECTOR` 0.62), otherwise FTS-only. Below threshold it returns an explicit "no relevant match" reason. Both thresholds are uncalibrated. Each match carries `log_id`, a `/logs/<id>` link, a citation and scores. Routes: `GET /api/records/{log_id}/similar` (the log itself excluded), `POST /api/similar`.
 
 ---
 
@@ -174,7 +173,7 @@ FTS-only path when no key is set. Results always link to the source log.
 |------|-------|-----------|
 | Embed | `nemotron-3-embed-1b` (2048-d) | Record and OKF vectors (existing) |
 | Rerank | `llama-nemotron-rerank-1b-v2` | Optional rerank in retrieval (existing) |
-| Extract / Fast | `nvidia-nemotron-nano-9b-v2` | Anomaly tie-break (existing); fill empty extraction fields (planned, optional) |
+| Extract / Fast | `nvidia-nemotron-nano-9b-v2` | Anomaly tie-break (existing); fill empty extraction fields (only with a key; value must appear verbatim in the log) |
 | Reasoning | `nemotron-3-ultra-550b-a55b` | Hidden chat only |
 
 All calls go through one 35-rpm token bucket with bounded retry. No model
@@ -187,17 +186,13 @@ computes risk, priority, schedule or decisions.
 ```mermaid
 flowchart LR
     Browser["Browser"] -->|HTTPS| CORS["CORS gate<br/>FRONTEND_ORIGIN + localhost"]
-    CORS --> Auth["Token check + require_role()<br/>(planned M.1)"]
+    CORS --> Auth["Token check + require_role()<br/>(M.1)"]
     Auth --> API["FastAPI routes"]
     API --> DB["PostgreSQL"]
 ```
 
-- **Today:** no authentication; every endpoint is open. Do not expose a
-  deployment with real data until M.1 lands.
-- **Planned (M-D2):** `users` table, `hashlib.scrypt` password hashes,
-  HMAC-signed token with expiry, `require_role()` on every route. Roles:
-  `engineer` (logs, review, search), `manager` (+ decisions, schedules),
-  `admin` (+ users, resources, criticality).
+- **Auth (M-D2):** `users` table, `hashlib.scrypt` password hashes, HMAC-signed bearer token (8 h expiry, `AUTH_SECRET`; the API refuses to start without it), router-level `require_role()` on every route except `GET /api/health` and login. Roles: `engineer` (logs, review, search, risk/priority runs), `manager` (decisions, schedule, resources, criticality, audit), `admin` (everything, plus users, terminology, connector delete, `documents/ingest-path`). Managers cannot edit review fields. The server enforces roles; hiding buttons in the UI is cosmetic.
+- **Open gaps:** no rate limit on login, no token revocation, no password reset. Do not expose a deployment with real data before these are reviewed.
 - CORS: `FRONTEND_ORIGIN` + localhost regex (existing).
 - Prompt-injection guard: regex + gatekeeper LLM on hidden chat (existing).
 - Secrets in `backend/.env` only, git-ignored.
@@ -209,7 +204,7 @@ flowchart LR
 Ask Copilot (`/ask`, `POST /api/chat`), RCA (`/workflows/rca`, `POST /api/rca`,
 `GET /api/graph/rca`) and Compliance (`/workflows/compliance`,
 `POST /api/compliance`, `GET /api/graph/compliance`) are retained and
-hidden. Planned: removed from the nav in M.0; reachable by URL;
+hidden. Removed from the nav and the Workflows hub (M.0); reachable by URL;
 code and tests unchanged. `workflow_runs` stays limited to `rca` / `compliance`.
 
 ---
@@ -227,3 +222,17 @@ Config exists, none verified for atlogs:
 
 **Single worker everywhere** — the in-memory job registry and DB pool assume one
 process.
+
+---
+
+## 11. Risk, priority, schedule, decision, notifications
+
+| Stage | Code | Behaviour |
+|-------|------|-----------|
+| Risk (M.9) | `engine/risk.py` (pure), `services/risk.py` | Weighted baseline `risk-v0-uncalibrated`: recurrence 30, recent incidents 20, criticality 25, similar-case adverse rate 25; category cut-offs 34/67; `insufficient_evidence` when fewer than 3 history records on the equipment or criticality unknown. Stored insert-only in `risk_assessments` |
+| Priority (M.10) | `engine/priority.py`, `services/priority.py` | Documented point policy (`rules.md` §4.1) gives P1-P4 plus an explanation list; stored `pending` in `recommendations`. Urgency words are negation-aware |
+| Schedule (M.11) | `engine/schedule.py`, `services/schedule.py` | Greedy: priority order, earliest free window of a technician with the skill, one unit per part; unplaceable items become conflicts (`skill`/`part`/`availability`), priority never lowered. A proposal is a stored row; nothing is booked and stock is not written back |
+| Decision (M.12) | `services/decision.py` | Manager/admin approve / modify / reject; status update and `decision_audit` insert in one transaction; only `pending` can be decided (409 otherwise); a DB trigger blocks UPDATE/DELETE/TRUNCATE on `decision_audit` |
+| Notifications (M.13) | `services/notifications.py` | Derived query per role, no table (M-D7), no read state |
+
+Routes: `POST/GET /api/records/{log_id}/risk|priority`, `POST /api/recommendations/{id}/decision`, `GET /api/records/{log_id}/decisions`, `GET /api/audit`, `POST /api/schedule/propose`, `GET /api/schedule/proposal`, `GET /api/notifications`, `GET /api/overview`.
